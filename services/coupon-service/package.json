@@ -1,0 +1,30 @@
+{
+  "name": "@repo/coupon-service",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "tsc --noEmit && bun build src/index.ts --target=bun --outdir=dist",
+    "start": "bun dist/index.js",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun src/scripts/migrate.ts",
+    "db:seed": "bun src/scripts/seed.ts",
+    "reporter:create": "bun src/scripts/create-reporter.ts",
+    "test:integration": "bun tests/integration.ts"
+  },
+  "dependencies": {
+    "@repo/shared": "workspace:*",
+    "drizzle-orm": "^0.45.0",
+    "hono": "^4.12.0",
+    "ioredis": "^5.9.0",
+    "postgres": "^3.4.8"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "drizzle-kit": "^0.31.9",
+    "typescript": "^5.9.3"
+  }
+}

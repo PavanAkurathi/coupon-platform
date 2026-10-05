@@ -1,0 +1,74 @@
+name: coupon-platform
+x-app: &app
+  init: true
+  restart: unless-stopped
+  healthcheck:
+    test: ["CMD", "bun", "-e", "const r=await fetch('http://127.0.0.1:'+process.env.PORT+'/health');process.exit(r.ok?0:1)"]
+    interval: 15s
+    timeout: 5s
+    retries: 3
+    start_period: 20s
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: coupon
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-development-only}
+      POSTGRES_DB: coupons
+    ports: ["127.0.0.1:${POSTGRES_PORT:-5432}:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coupon -d coupons"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["127.0.0.1:${REDIS_PORT:-6379}:6379"]
+    volumes: ["redis-data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  coupon-service:
+    <<: *app
+    build:
+      context: .
+      args: {SERVICE: coupon-service}
+    command: ["sh", "-c", "bun run --cwd services/coupon-service db:migrate && exec bun services/coupon-service/dist/index.js"]
+    environment:
+      PORT: "3001"
+      DATABASE_URL: postgres://coupon:${POSTGRES_PASSWORD:-local-development-only}@postgres:5432/coupons
+      REDIS_URL: redis://redis:6379
+      CORS_ORIGINS: http://localhost:4173
+    ports: ["127.0.0.1:3001:3001"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  price-service:
+    <<: *app
+    build:
+      context: .
+      args: {SERVICE: price-service}
+    environment: {PORT: "3002"}
+    ports: ["127.0.0.1:3002:3002"]
+
+  cashback-service:
+    <<: *app
+    build:
+      context: .
+      args: {SERVICE: cashback-service}
+    environment: {PORT: "3003"}
+    ports: ["127.0.0.1:3003:3003"]
+
+volumes:
+  postgres-data:
+  redis-data:

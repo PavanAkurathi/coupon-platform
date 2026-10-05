@@ -1,0 +1,17 @@
+{
+  "name": "@repo/cashback-service",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && bun build src/index.ts --target=bun --outdir=dist",
+    "typecheck": "tsc --noEmit",
+    "dev": "bun --watch src/index.ts",
+    "start": "bun dist/index.js",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@repo/shared": "workspace:*",
+    "hono": "^4.13.13"
+  }
+}

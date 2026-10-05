@@ -1,0 +1,24 @@
+{
+  "name": "@repo/extension",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && bun run build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "demo": "bun run demo/server.ts",
+    "test:e2e": "bun e2e/smoke.ts",
+    "browser:install": "playwright install chromium"
+  },
+  "dependencies": {
+    "@repo/shared": "workspace:*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.5",
+    "@types/chrome": "^0.0.287",
+    "playwright": "^1.63.0",
+    "typescript": "^5.8.2"
+  }
+}

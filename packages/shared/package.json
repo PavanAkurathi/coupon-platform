@@ -1,0 +1,13 @@
+{
+  "name": "@repo/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {".": "./src/index.ts"},
+  "scripts": {
+    "build": "tsc --noEmit && bun build src/index.ts --target=browser --outdir=dist",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {"zod": "^4.6.5"}
+}
