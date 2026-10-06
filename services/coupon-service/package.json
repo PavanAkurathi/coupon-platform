@@ -13,6 +13,7 @@
     "db:migrate": "bun src/scripts/migrate.ts",
     "db:seed": "bun src/scripts/seed.ts",
     "reporter:create": "bun src/scripts/create-reporter.ts",
+    "coupon:review": "bun src/scripts/review-coupon.ts",
     "test:integration": "bun tests/integration.ts"
   },
   "dependencies": {

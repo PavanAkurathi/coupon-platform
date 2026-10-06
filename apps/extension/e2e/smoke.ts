@@ -81,7 +81,84 @@ try {
     return chrome.action.getBadgeText({ tabId: tab!.id! });
   }), (text) => text === '$', 'merchant badge');
   check('supported merchant receives dollar badge', () => assert.equal(badge, '$'));
+
+  // A syntactically valid, unissued fixture token enables the manual-code UI only.
+  // It is confined to this disposable profile and must never authenticate a report.
+  await worker.evaluate(async () => {
+    await chrome.storage.local.set({ shopperToken: 'unissued-smoke-fixture-token-0000000000000000' });
+  });
+  await page.evaluate(() => {
+    const instrumented = window as typeof window & { __couponSmokePromoClicks: number };
+    instrumented.__couponSmokePromoClicks = 0;
+    document.addEventListener('click', (event) => {
+      if (event.target instanceof Element && event.target.closest('[data-apply-coupon], [data-remove-coupon]')) {
+        instrumented.__couponSmokePromoClicks++;
+      }
+    }, true);
+  });
+  const checkoutSnapshot = () => page.evaluate(() => ({
+    data: { ...document.querySelector<HTMLElement>('[data-coupon-demo]')!.dataset },
+    promoValue: document.querySelector<HTMLInputElement>('[data-coupon-input]')!.value,
+    clicks: (window as typeof window & { __couponSmokePromoClicks: number }).__couponSmokePromoClicks,
+  }));
+  const beforeUnknown = await checkoutSnapshot();
   let popup = await openPopup();
+  const unknownReply = await popup.evaluate<{ ok: boolean; error?: string }>(
+    'chrome.runtime.sendMessage({type:"try-code",code:"UNREVIEWED"})',
+  );
+  check('actual popup rejects unknown manual codes awaiting safety review', () => {
+    assert.equal(unknownReply.ok, false);
+    assert.match(unknownReply.error ?? '', /awaiting safety review/i);
+  });
+  const afterUnknown = await checkoutSnapshot();
+  check('failed preflight causes zero promo clicks or checkout changes', () => {
+    assert.equal(afterUnknown.clicks, 0);
+    assert.deepEqual(afterUnknown, beforeUnknown);
+  });
+
+  const [reportResponse, legacyReply] = await Promise.all([
+    context.waitForEvent('response', {
+      predicate: (response) => response.url() === 'http://localhost:3001/v1/coupons/report',
+      timeout: 10000,
+    }),
+    popup.evaluate<{ ok: boolean; data?: { reportNote: string; result: { appliedCode: string | null; savingsCents: number } } }>(
+      'chrome.runtime.sendMessage({type:"try-code",code:"LEGACY5"})',
+    ),
+  ]);
+  const afterLegacy = await checkoutSnapshot();
+  const creatorCookieAfterManual = (await context.cookies()).find((cookie) => cookie.name === 'affiliate_owner');
+  check('reviewed quarantined manual code works while protecting creator attribution', () => {
+    assert.equal(legacyReply.ok, true);
+    assert.equal(legacyReply.data?.result.appliedCode, 'LEGACY5');
+    assert.equal(legacyReply.data?.result.savingsCents, 500);
+    assert.equal(afterLegacy.data.appliedCode, 'LEGACY5');
+    assert.equal(afterLegacy.data.totalCents, '9500');
+    assert.equal(afterLegacy.data.completed, 'false');
+    assert.ok(afterLegacy.clicks > 0, 'Promo click instrumentation also observes approved trials');
+    assert.equal(creatorCookieAfterManual?.value, 'creator-fixture');
+    assert.ok(page.url().endsWith('?tag=creator-fixture'));
+  });
+  check('unissued token cannot save a report or claim verification success', () => {
+    assert.equal(reportResponse.status(), 401);
+    assert.match(legacyReply.data?.reportNote ?? '', /verification reports could not be saved/i);
+    assert.doesNotMatch(legacyReply.data?.reportNote ?? '', /Your results helped check these codes/i);
+  });
+  await popup.close();
+  popup = await openPopup();
+  const unsavedReportText = await popup.evaluate<string>('document.getElementById("status").textContent');
+  check('popup displays the unsaved verification report honestly', () => {
+    assert.match(unsavedReportText, /verification reports could not be saved/i);
+    assert.doesNotMatch(unsavedReportText, /Your results helped check these codes/i);
+  });
+  await popup.close();
+  await worker.evaluate(async () => {
+    await chrome.storage.local.remove('shopperToken');
+    await chrome.storage.session.clear();
+  });
+  await page.getByRole('button', { name: 'Start a new cart', exact: true }).click();
+
+  // Preserve the original automatic-trial, recovery and receipt smoke checks.
+  popup = await openPopup();
   await popup.run();
   const first = await page.locator('[data-coupon-demo]').evaluate((element) => ({ ...((element as HTMLElement).dataset) }));
   check('real popup applies highest-saving verified code', () => { assert.equal(first.appliedCode, 'SAVE15'); assert.equal(first.totalCents, '8500'); });

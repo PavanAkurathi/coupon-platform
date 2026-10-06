@@ -23,13 +23,13 @@ try {
       if (!user) throw new Error('Demo user was not created');
       demoUsers.push(user.id);
     }
-    for (const [code, savingsCents] of [['WELCOME10', 1000], ['SAVE15', 1500]] as const) {
+    for (const [code, savingsCents, verifiedFixture] of [['WELCOME10', 1000, true], ['SAVE15', 1500, true], ['NEW20', 2000, false], ['LEGACY5', 500, false]] as const) {
       await tx.insert(coupons).values({
         merchantId, code, expiresAt: new Date(Date.now() + 30 * 86400_000),
       }).onConflictDoNothing({ target: [coupons.merchantId, coupons.code] });
       const [coupon] = await tx.select().from(coupons).where(and(eq(coupons.merchantId, merchantId), eq(coupons.code, code))).for('update');
       if (!coupon) throw new Error('Demo coupon was not created');
-      for (const userId of demoUsers) {
+      for (const userId of verifiedFixture ? demoUsers : []) {
         await tx.insert(couponReports).values({ couponId: coupon.id, userId, outcome: 'success', savingsCents })
           .onConflictDoNothing({ target: [couponReports.couponId, couponReports.userId] });
       }
@@ -42,10 +42,12 @@ try {
       if (!aggregate) throw new Error('Demo reports missing');
       await tx.update(coupons).set({
         ...aggregate, status: aggregate.confirmations >= 3 ? 'verified' : 'quarantined', updatedAt: new Date(),
+        approvalStatus: 'approved', audience: 'public', attributionBehavior: 'neutral', reviewedAt: new Date(),
+        reviewedBy: 'local-fixture-seed', evidenceRef: 'fixture:apps/extension/demo/checkout.ts; synthetic localhost codes only',
       }).where(eq(coupons.id, coupon.id));
     }
   });
-  console.info('Local demo merchant seeded: localhost (WELCOME10 and SAVE15). Demo confirmations are synthetic fixtures.');
+  console.info('Local demo seeded. WELCOME10/SAVE15 have synthetic confirmations; NEW20/LEGACY5 require shopper verification. Safety approval is a localhost fixture only.');
 } finally {
   await client.end({ timeout: 3 });
 }

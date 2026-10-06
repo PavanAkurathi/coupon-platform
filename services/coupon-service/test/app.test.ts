@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { unreviewedCouponSafety } from '@repo/shared';
 import { createApp } from '../src/app';
 import {
   DomainError, eligibleCandidates, hashToken, summarizeReports,
@@ -12,6 +13,7 @@ const report = { merchantId, code: 'SAVE10', outcome: 'success', savingsCents: 1
 const limiter: RateLimiter = { allow: async () => true, ping: async () => {} };
 const makeRow = (overrides: Partial<CouponRow> = {}): CouponRow => ({
   id: crypto.randomUUID(), merchantId, code: 'SAVE10', status: 'verified',
+  approvalStatus: 'approved', audience: 'public', attributionBehavior: 'neutral', reviewedAt: now, evidenceRef: 'test-fixture',
   confirmations: 3, reportCount: 3, expectedSavingsCents: 1000, expiresAt: null, ...overrides,
 });
 
@@ -22,12 +24,13 @@ function fixture() {
     listMerchants: async () => [{ id: merchantId, domain: 'localhost', name: 'Demo Store', currency: 'USD' }],
     hasMerchant: async (id) => id === merchantId,
     findCandidates: async (id) => rows.filter((row) => row.merchantId === id),
+    findCoupon: async (id, code) => rows.find((row) => row.merchantId === id && row.code === code) ?? null,
     authenticate: async (hash) => hash === hashToken(token) ? 'shopper-1' : hash === hashToken('b'.repeat(43)) ? 'shopper-2' : hash === hashToken('c'.repeat(43)) ? 'shopper-3' : null,
     async report(userId, input, date) {
       let row = rows.find((row) => row.code === input.code && row.merchantId === input.merchantId);
       if (row?.expiresAt && row.expiresAt <= date) throw new DomainError('COUPON_EXPIRED', 'This code has expired.', 410);
       if (!row) {
-        row = makeRow({ code: input.code, status: 'quarantined', confirmations: 0, reportCount: 0 });
+        row = makeRow({ ...unreviewedCouponSafety, reviewedAt: null, code: input.code, status: 'quarantined', confirmations: 0, reportCount: 0 });
         rows.push(row);
       }
       const couponVotes = votes.get(row.id) ?? new Map();
@@ -80,6 +83,68 @@ describe('candidate contract and ranking', () => {
     expect(eligibleCandidates([row], now, 10)).toHaveLength(1);
     expect(eligibleCandidates([row], new Date(now.getTime() + 1), 10)).toHaveLength(0);
   });
+  test('unsafe high scores never displace an approved public neutral coupon', async () => {
+    const { app, rows } = fixture();
+    rows.push(makeRow({ code: 'SAFE', expectedSavingsCents: 100 }));
+    const unsafe: Partial<CouponRow>[] = [
+      { approvalStatus: 'pending' }, { approvalStatus: 'rejected' }, { audience: 'private' },
+      { audience: 'creator' }, { audience: 'unknown' }, { attributionBehavior: 'unknown' },
+      { attributionBehavior: 'affiliate' }, { reviewedAt: null }, { evidenceRef: null }, { evidenceRef: '  ' },
+    ];
+    rows.push(...unsafe.map((patch, i) => makeRow({ code: `UNSAFE${i}`, expectedSavingsCents: 9000, ...patch })));
+    const response = await app.request(`/v1/coupons/candidates?merchantId=${merchantId}&limit=1`);
+    expect((await response.json()).candidates.map((row: {code: string}) => row.code)).toEqual(['SAFE']);
+  });
+});
+
+describe('manual coupon preflight', () => {
+  const path = (code: string) => `/v1/coupons/preflight?merchantId=${merchantId}&code=${code}`;
+  test('an approved quarantined code can collect shopper confirmations', async () => {
+    const { app, rows } = fixture();
+    rows.push(makeRow({ status: 'quarantined', confirmations: 0, reportCount: 0 }));
+    const response = await app.request(path('save10'));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.json()).toMatchObject({ merchantId, code: 'SAVE10', canAutoApply: true, reason: 'approved' });
+    expect((await (await app.request(`/v1/coupons/candidates?merchantId=${merchantId}`)).json()).candidates).toHaveLength(0);
+  });
+  test('missing, expired and unreviewed coupons cannot be tried by the extension', async () => {
+    const { app, rows } = fixture();
+    rows.push(makeRow({ code: 'EXPIRED', expiresAt: now }), makeRow({ code: 'PENDING', approvalStatus: 'pending' }));
+    for (const [code, reason] of [['MISSING', 'not_found'], ['EXPIRED', 'expired'], ['PENDING', 'needs_review']]) {
+      const response = await app.request(path(code!));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ canAutoApply: false, reason });
+    }
+  });
+  test('revocation takes effect on the next read', async () => {
+    const { app, rows } = fixture();
+    const row = makeRow();
+    rows.push(row);
+    expect((await (await app.request(path(row.code))).json()).canAutoApply).toBe(true);
+    row.approvalStatus = 'rejected';
+    expect((await (await app.request(path(row.code))).json()).canAutoApply).toBe(false);
+    expect((await (await app.request(`/v1/coupons/candidates?merchantId=${merchantId}`)).json()).candidates).toHaveLength(0);
+  });
+  test('validates request and fails closed when the database is unavailable', async () => {
+    const { app, store } = fixture();
+    expect((await app.request('/v1/coupons/preflight?merchantId=bad&code=SAVE10')).status).toBe(400);
+    expect((await app.request(`${path('SAVE10')}&approvalStatus=approved`)).status).toBe(400);
+    expect((await app.request(`/v1/coupons/preflight?merchantId=${crypto.randomUUID()}&code=SAVE10`)).status).toBe(404);
+    const failed = createApp({ store: { ...store, findCoupon: async () => { throw new Error('DB down'); } }, limiter });
+    expect((await failed.request(path('SAVE10'))).status).toBe(503);
+  });
+  test('expiry uses a fresh clock after the database read', async () => {
+    const { store, rows } = fixture();
+    const expires = new Date(now.getTime() + 1);
+    rows.push(makeRow({ expiresAt: expires }));
+    let clock = now;
+    const app = createApp({ store: { ...store, findCoupon: async (id, code) => {
+      clock = expires;
+      return store.findCoupon(id, code);
+    } }, limiter, now: () => clock });
+    expect(await (await app.request(path('SAVE10'))).json()).toMatchObject({ canAutoApply: false, reason: 'expired' });
+  });
 });
 
 describe('crowdsourced verification through HTTP', () => {
@@ -89,6 +154,7 @@ describe('crowdsourced verification through HTTP', () => {
     expect(response.status).toBe(401);
     expect((await post(app, report, 'z'.repeat(43))).status).toBe(401);
     expect((await post(app, { ...report, userId: 'other-shopper' })).status).toBe(400);
+    expect((await post(app, { ...report, approvalStatus: 'approved' })).status).toBe(400);
   });
   test('success needs real positive integer cents and failure needs zero', async () => {
     const { app } = fixture();
@@ -124,6 +190,17 @@ describe('crowdsourced verification through HTTP', () => {
     const { app, rows } = fixture();
     expect((await post(app, { ...report, code: ' save10 ' })).status).toBe(200);
     expect(rows[0]?.code).toBe('SAVE10');
+  });
+  test('three independent votes cannot approve a code or alter an operator decision', async () => {
+    const { app, rows } = fixture();
+    for (const letter of ['a', 'b', 'c']) await post(app, report, letter.repeat(43));
+    expect(rows[0]).toMatchObject({ status: 'verified', ...unreviewedCouponSafety });
+    const candidates = () => app.request(`/v1/coupons/candidates?merchantId=${merchantId}`);
+    expect((await (await candidates()).json()).candidates).toHaveLength(0);
+    Object.assign(rows[0]!, { approvalStatus: 'approved', audience: 'public', attributionBehavior: 'neutral', reviewedAt: now, evidenceRef: 'review-proof' });
+    await post(app, report);
+    expect(rows[0]).toMatchObject({ approvalStatus: 'approved', reviewedAt: now, evidenceRef: 'review-proof' });
+    expect((await (await candidates()).json()).candidates).toHaveLength(1);
   });
 });
 

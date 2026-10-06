@@ -5,8 +5,9 @@ import { secureHeaders } from 'hono/secure-headers';
 import {
   candidatesQuerySchema, candidatesResponseSchema, couponReportSchema,
   couponReportResponseSchema, merchantsResponseSchema, healthResponseSchema,
+  couponPreflightQuerySchema, couponPreflightResponseSchema,
 } from '@repo/shared';
-import { DomainError, eligibleCandidates, hashToken, type CouponStore, type RateLimiter } from './domain';
+import { DomainError, eligibleCandidates, hashToken, preflightCoupon, type CouponStore, type RateLimiter } from './domain';
 
 type Dependencies = { store: CouponStore; limiter: RateLimiter; now?: () => Date; corsOrigins?: string[] };
 type Env = { Bindings: { clientAddress?: string } };
@@ -77,6 +78,14 @@ export function createApp({ store, limiter, now = () => new Date(), corsOrigins 
     if (!report.success) return c.json(fail('INVALID_REPORT', 'Report a valid code and measured savings in cents.'), 400);
     const result = await store.report(userId, report.data, now());
     return c.json(couponReportResponseSchema.parse(result));
+  });
+  app.get('/v1/coupons/preflight', async (c) => {
+    const parsed = couponPreflightQuerySchema.safeParse(c.req.query());
+    if (!parsed.success) return c.json(fail('INVALID_QUERY', 'Provide a valid merchantId and coupon code.'), 400);
+    const { merchantId, code } = parsed.data;
+    if (!await store.hasMerchant(merchantId)) return c.json(fail('MERCHANT_NOT_FOUND', 'This merchant is not supported.'), 404);
+    const coupon = await store.findCoupon(merchantId, code);
+    return c.json(couponPreflightResponseSchema.parse(preflightCoupon(merchantId, code, coupon, now())));
   });
   app.notFound((c) => c.json(fail('NOT_FOUND', 'Route not found.'), 404));
   app.onError((error, c) => {

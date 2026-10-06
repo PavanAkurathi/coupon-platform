@@ -1,6 +1,7 @@
-import type { CouponReport, CouponReportResponse, Merchant } from '@repo/shared';
+import { canAutoApplyCoupon, couponSafetyReason, unreviewedCouponSafety, type CouponSafety, type CouponReport, type CouponReportResponse, type Merchant } from '@repo/shared';
 export type { CouponReport, Merchant } from '@repo/shared';
-export type CouponRow = {
+export type CouponRow = Omit<CouponSafety, 'reviewedAt'> & {
+  reviewedAt: Date | null;
   id: string;
   merchantId: string;
   code: string;
@@ -28,12 +29,27 @@ export function toCandidate(coupon: CouponRow) {
     score: successRate * coupon.expectedSavingsCents,
     confirmations: coupon.confirmations,
     expiresAt: coupon.expiresAt?.toISOString() ?? null,
+    ...toSafety(coupon),
   };
+}
+
+export function toSafety(coupon: CouponRow): CouponSafety {
+  return {
+    approvalStatus: coupon.approvalStatus, audience: coupon.audience,
+    attributionBehavior: coupon.attributionBehavior, reviewedAt: coupon.reviewedAt?.toISOString() ?? null,
+    evidenceRef: coupon.evidenceRef,
+  };
+}
+
+export function preflightCoupon(merchantId: string, code: string, coupon: CouponRow | null, now: Date) {
+  const safety = coupon ? toSafety(coupon) : unreviewedCouponSafety;
+  const reason = !coupon ? 'not_found' : coupon.expiresAt && coupon.expiresAt <= now ? 'expired' : couponSafetyReason(safety);
+  return { merchantId, code, ...safety, expiresAt: coupon?.expiresAt?.toISOString() ?? null, canAutoApply: reason === 'approved', reason };
 }
 
 // Also used after the SQL filter: a response never contains an expired or quarantined code.
 export function eligibleCandidates(rows: CouponRow[], now: Date, limit: number) {
-  return rows.filter((coupon) => coupon.status === 'verified' && coupon.confirmations >= 3
+  return rows.filter((coupon) => canAutoApplyCoupon(toSafety(coupon)) && coupon.status === 'verified' && coupon.confirmations >= 3
     && (!coupon.expiresAt || coupon.expiresAt.getTime() > now.getTime()))
     .map(toCandidate)
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
@@ -55,6 +71,7 @@ export interface CouponStore {
   listMerchants(): Promise<Merchant[]>;
   hasMerchant(id: string): Promise<boolean>;
   findCandidates(merchantId: string, limit: number, now: Date): Promise<CouponRow[]>;
+  findCoupon(merchantId: string, code: string): Promise<CouponRow | null>;
   authenticate(tokenHash: string): Promise<string | null>;
   report(userId: string, report: CouponReport, now: Date): Promise<ReportResult>;
   ping(): Promise<void>;

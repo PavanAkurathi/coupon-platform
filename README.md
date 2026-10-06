@@ -13,7 +13,7 @@ docker compose exec -e NODE_ENV=development coupon-service bun run --cwd service
 bun run demo
 ```
 
-Load `apps/extension/dist` as an unpacked extension at `chrome://extensions` (Developer mode). Open `http://localhost:4173/checkout`, then click **Try codes for me**. The demo has a $100 cart, `WELCOME10` ($10) and `SAVE15` ($15); the best total wins. Seed confirmations are clearly synthetic fixtures, never production evidence. Seeding is explicit and disabled under `NODE_ENV=production`.
+Load `apps/extension/dist` as an unpacked extension at `chrome://extensions` (Developer mode). Open `http://localhost:4173/checkout`, then click **Try codes for me**. The demo has a $100 cart, `WELCOME10` ($10) and `SAVE15` ($15); the best total wins. `NEW20` ($20) and `LEGACY5` ($5) have fixture safety approval but start without shopper confirmations, for manual-code testing. All seed approvals and confirmations are synthetic localhost fixtures, never production evidence. Seeding is explicit and disabled under `NODE_ENV=production`.
 
 The supported merchant is the **local demo checkout only**. The API, database, reporting loop and extension interaction are real; live merchant selectors and partnerships are not invented. New merchants require a reviewed adapter, a database merchant row, explicit host access, and browser tests against that checkout.
 
@@ -23,7 +23,7 @@ To report results, issue a token for an operator-verified beta shopper, then pas
 docker compose exec coupon-service bun run --cwd services/coupon-service reporter:create --identity beta-shopper-001
 ```
 
-Save the token securely; it is shown once. The same normalized identity cannot be registered twice. Browsing and trying verified codes work without a token. **Have a code to share?** tests a supplied code in the current checkout and reports the observed result; newly discovered codes start quarantined. The CLI identity check is an invite-only beta boundary, not proof that arbitrary anonymous accounts represent separate humans.
+Save the token securely; it is shown once. The same normalized identity cannot be registered twice. Browsing and trying verified codes work without a token. **Have a code to share?** checks a supplied code's safety approval before testing it and reporting the observed result. Unreviewed codes cannot trigger checkout automation. The CLI identity check is an invite-only beta boundary, not proof that arbitrary anonymous accounts represent separate humans.
 
 If database ports are busy, run Compose with `POSTGRES_PORT=55432 REDIS_PORT=56379`; all service-to-service connections still use Docker's internal ports. Containers bind only to localhost. `docker compose down` stops the stack and retains its data.
 
@@ -53,6 +53,7 @@ Ports: coupon API `3001`, price `3002`, cashback `3003`, demo `4173`. Every Comp
 |---|---|---|
 | GET | `/v1/merchants` | Explicitly supported merchant records |
 | GET | `/v1/coupons/candidates?merchantId=<uuid>&limit=10` | Verified only; expiration filtered; rank by `successRate × expectedSavingsCents` |
+| GET | `/v1/coupons/preflight?merchantId=<uuid>&code=SAVE15` | Fresh safety/expiry check before a user-requested trial; no quorum required |
 | POST | `/v1/coupons/report` | Bearer shopper token; atomically creates/updates one vote per shopper and code |
 | GET | `/health` | Dependency health, `503` when unavailable |
 
@@ -62,11 +63,25 @@ Report JSON:
 {"merchantId":"00000000-0000-4000-8000-000000000001","code":"SAVE15","outcome":"success","savingsCents":1500,"currency":"USD"}
 ```
 
-Success requires positive savings; failure requires zero. Three distinct successful reporters promote a code. Updates replace a shopper's vote, so retries never inflate confirmation counts. Losing the quorum quarantines it again. Success rate is successful voters / all voters; expected savings is the average successful saving, in cents. Transactions, a per-code advisory lock and unique constraints protect concurrent reports. Codes introduced through reports expire after 30 days unless an operator curates their expiration; expired codes never reach candidates and reject new reports. Redis limits reads and reports; no cached candidate list can outlive a coupon's expiration.
+Success requires positive savings; failure requires zero. Three distinct successful reporters verify a code's effectiveness; **separate operator approval is required for application**. New and migrated coupons default to pending/unknown. Candidates must be approved, public and attribution-neutral with recorded review evidence, as well as verified and unexpired. These checks run before SQL ranking/limit and again before response. Reports cannot change approval metadata.
+
+Updates replace a shopper's vote, so retries never inflate confirmation counts. Losing the quorum quarantines it again. Success rate is successful voters / all voters; expected savings is the average successful saving, in cents. Transactions, a per-code advisory lock and unique constraints protect concurrent reports. Codes introduced through reports expire after 30 days unless an operator curates their expiration; expired codes never reach candidates and reject new reports. Redis limits reads and reports; candidate and preflight responses are not cached.
+
+An operator records a source-backed decision locally (replace the placeholders with actual reviewed evidence):
+
+```sh
+docker compose exec coupon-service bun run --cwd services/coupon-service coupon:review \
+  --merchant <uuid> --code <code> --operator <reviewer-id> \
+  --approval approved --audience public --attribution neutral --evidence <evidence-reference>
+```
+
+Use `--create` to introduce a reviewed code before collecting shopper confirmations; this never creates votes. Optional `--expires-at` sets a future ISO timestamp. `--approval rejected` revokes application eligibility. Review evidence must establish public availability and neutral attribution; a working discount alone is insufficient. There is no public approval endpoint.
 
 ## Trust and earnings
 
 The extension has no cookie or request-interception permissions, does not read/write cookies, rewrite affiliate URLs, or navigate through tracking links. Coupon trials operate only on promo controls after an explicit click; they never submit an order. Existing coupons are compared and restored if better; unsafe checkout changes stop the run.
+
+Coupon codes can themselves assign affiliate credit. The shared safety policy blocks codes with unknown or affiliate attribution and private/creator codes. A creator referral may still use an approved neutral coupon; protecting the referral does not disable those savings.
 
 `attributionPolicy` always denies affiliate-cookie writes. Creator, third-party and unknown attribution deny commission claims while still allowing coupons. URL markers are only hints: missing markers never establish ownership. Phase 1 makes no affiliate claims at all.
 

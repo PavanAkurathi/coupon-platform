@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { canAutoApplyCoupon, couponPreflightReasonSchema, couponSafetySchema } from './coupon-policy';
 
 export const currencySchema = z.literal('USD');
 export const centsSchema = z.number().int().min(0).max(100_000_000);
@@ -16,7 +17,21 @@ export const candidateSchema = z.object({
   score: z.number().nonnegative(),
   confirmations: z.number().int().min(3),
   expiresAt: z.iso.datetime().nullable(),
+  ...couponSafetySchema.shape,
 }).strict();
+export const couponPreflightQuerySchema = z.object({merchantId: z.uuid(), code: couponCodeSchema}).strict();
+// A reviewed, quarantined code may be tested by a shopper but is never suggested
+// automatically until it also has three successful independent confirmations.
+export const couponPreflightResponseSchema = z.object({
+  merchantId: z.uuid(), code: couponCodeSchema,
+  canAutoApply: z.boolean(), reason: couponPreflightReasonSchema,
+  expiresAt: z.iso.datetime().nullable(), ...couponSafetySchema.shape,
+}).strict().superRefine((response, ctx) => {
+  if ((response.canAutoApply && (response.reason !== 'approved' || !canAutoApplyCoupon(response))) ||
+      (!response.canAutoApply && response.reason === 'approved')) {
+    ctx.addIssue({code:'custom', message:'Preflight decision must match approval evidence.'});
+  }
+});
 export const candidatesResponseSchema = z.object({
   merchantId: z.uuid(), currency: currencySchema, candidates: z.array(candidateSchema),
 }).strict();

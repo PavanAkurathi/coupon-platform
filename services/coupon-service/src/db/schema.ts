@@ -3,6 +3,9 @@ import { check, index, integer, pgEnum, pgTable, text, timestamp, uniqueIndex, u
 
 export const couponStatus = pgEnum('coupon_status', ['quarantined', 'verified']);
 export const reportOutcome = pgEnum('report_outcome', ['success', 'failure']);
+export const couponApproval = pgEnum('coupon_approval', ['pending', 'approved', 'rejected']);
+export const couponAudience = pgEnum('coupon_audience', ['unknown', 'public', 'private', 'creator']);
+export const couponAttribution = pgEnum('coupon_attribution', ['unknown', 'neutral', 'affiliate']);
 
 export const users = pgTable('users', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -25,6 +28,12 @@ export const coupons = pgTable('coupons', {
   merchantId: uuid('merchant_id').notNull().references(() => merchants.id, { onDelete: 'cascade' }),
   code: text('code').notNull(),
   status: couponStatus('status').default('quarantined').notNull(),
+  approvalStatus: couponApproval('approval_status').default('pending').notNull(),
+  audience: couponAudience('audience').default('unknown').notNull(),
+  attributionBehavior: couponAttribution('attribution_behavior').default('unknown').notNull(),
+  reviewedAt: timestamp('reviewed_at', { withTimezone: true }),
+  evidenceRef: text('evidence_ref'),
+  reviewedBy: text('reviewed_by'),
   confirmations: integer('confirmations').default(0).notNull(),
   reportCount: integer('report_count').default(0).notNull(),
   // Integer minor currency units. Rate and score are calculated, not rounded in storage.
@@ -38,6 +47,7 @@ export const coupons = pgTable('coupons', {
   check('coupons_counts_valid', sql`${table.confirmations} >= 0 AND ${table.reportCount} >= ${table.confirmations}`),
   check('coupons_savings_nonnegative', sql`${table.expectedSavingsCents} >= 0`),
   check('coupons_verified_threshold', sql`${table.status} = 'quarantined' OR ${table.confirmations} >= 3`),
+  check('coupons_approval_evidence', sql`${table.approvalStatus} <> 'approved' OR (${table.reviewedAt} IS NOT NULL AND ${table.evidenceRef} IS NOT NULL AND length(trim(${table.evidenceRef})) > 0 AND ${table.reviewedBy} IS NOT NULL AND length(trim(${table.reviewedBy})) > 0)`),
 ]);
 
 export const couponReports = pgTable('coupon_reports', {
