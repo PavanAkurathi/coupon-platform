@@ -2,6 +2,8 @@
 
 A small, runnable coupon MVP: an MV3 extension, a real coupon API, and two explicit service stubs. Neutral naming throughout. Bun 1.3.14+, Docker, Chrome/Chromium; USD only for the first release.
 
+Current progress: [STATUS.md](STATUS.md). Live-store observations and the next build packet: [October 7 review](docs/LIVE-STORE-REVIEW.md).
+
 ## Run
 
 ```sh
