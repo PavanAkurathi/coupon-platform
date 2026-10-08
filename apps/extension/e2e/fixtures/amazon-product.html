@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Amazon reader fixture</title></head><body>
+<!-- Synthetic regression fixture using only the structure observed on Oct 7.
+     No shopper information, copied page payloads, authentication or real orders. -->
+<input id="ASIN" name="ASIN" type="hidden" value="B097S1MF28">
+<h1 id="title"><span id="productTitle">Fixture product</span></h1>
+<section id="unrelated-ad"><div class="ct-coupon-tile"><label class="ct-coupon-checkbox-label">Coupon price $1.00</label></div></section>
+<div id="promoPriceBlockMessage_feature_div">
+  <div class="ct-coupon-tile unclaimed">
+    <label><input id="fixture-coupon" type="checkbox"></label>
+    <label for="fixture-coupon" class="a-form-label ct-coupon-checkbox-label">
+      <span class="ct-coupon-tile-text-content"><span class="a-text-normal"><span>Coupon price</span></span>
+        <span class="a-price"><span class="a-offscreen">$15.99</span></span>
+        <span class="a-price" style="display:none"><span class="a-offscreen">$4.00</span></span>
+      </span>
+    </label>
+  </div>
+  <span>Limit 1 item.</span> <a href="#terms">Terms</a>
+  <div class="ct-coupon-tile" style="display:none">
+    <input id="hidden-coupon" type="checkbox">
+    <label for="hidden-coupon" class="ct-coupon-checkbox-label">Coupon price <span class="a-price"><span class="a-offscreen">$9.99</span></span></label>
+  </div>
+</div>
+<section id="purchase-options">One-time purchase $19.99 · Subscribe &amp; Save $11.21 · Prime offer $11.83</section>
+<form id="order"><button id="buy" type="submit">Place order fixture</button></form>
+</body></html>

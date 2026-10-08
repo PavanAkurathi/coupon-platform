@@ -15,7 +15,9 @@ describe("extension trust boundaries", () => {
     expect(contentRequestSchema.safeParse({ type: "trial", codes: Array(11).fill("SAVE15") }).success).toBe(false);
   });
   test("permission surface excludes cookie and redirect APIs", () => {
-    for (const permission of ["cookies", "webRequest", "webRequestBlocking", "declarativeNetRequest", "scripting", "tabs"]) expect(manifest.permissions).not.toContain(permission);
+    for (const permission of ["cookies", "webRequest", "webRequestBlocking", "declarativeNetRequest", "tabs"]) expect(manifest.permissions).not.toContain(permission);
+    expect(manifest.permissions).toEqual(["storage", "activeTab", "scripting"]);
+    expect(manifest.content_scripts.flatMap((entry) => entry.matches)).toEqual(["http://localhost/*"]);
     expect(manifest.host_permissions).toEqual(["http://localhost/*"]);
   });
   test("source cannot acquire cookie or request-rewriting capabilities", async () => {

@@ -17,7 +17,9 @@ bun run demo
 
 Load `apps/extension/dist` as an unpacked extension at `chrome://extensions` (Developer mode). Open `http://localhost:4173/checkout`, then click **Try codes for me**. The demo has a $100 cart, `WELCOME10` ($10) and `SAVE15` ($15); the best total wins. `NEW20` ($20) and `LEGACY5` ($5) have fixture safety approval but start without shopper confirmations, for manual-code testing. All seed approvals and confirmations are synthetic localhost fixtures, never production evidence. Seeding is explicit and disabled under `NODE_ENV=production`.
 
-The supported merchant is the **local demo checkout only**. The API, database, reporting loop and extension interaction are real; live merchant selectors and partnerships are not invented. New merchants require a reviewed adapter, a database merchant row, explicit host access, and browser tests against that checkout.
+**Amazon.com product coupons:** open a product page, then the extension. It reads visible native coupon offers locally and offers **Show coupon on Amazon**, which scrolls/focuses the existing control. It does not select the coupon or verify a checkout discount. This uses temporary access when you open the popup; no persistent Amazon permission, API upload or browsing-history storage. Unknown layouts stop safely. [Scope and live evidence](docs/AMAZON-INTEGRATION.md).
+
+**Automated coupon-code trials currently support the local demo checkout only.** Amazon cart/checkout automation and Shopify adapters remain unfinished. New trial adapters require observed controls, approved coupon sources, explicit access and checkout regression tests.
 
 To report results, issue a token for an operator-verified beta shopper, then paste it into the popup's Community settings:
 
@@ -35,7 +37,7 @@ For local API development, start only `postgres redis`, copy `.env.example` to `
 
 Run the live integration checks against a disposable/local database and running API with `DATABASE_URL=postgres://coupon:local-development-only@localhost:5432/coupons bun run --cwd services/coupon-service test:integration`. They create and clean their own test records.
 
-For a browser smoke test against the running, seeded stack and demo, run `bun run --cwd apps/extension browser:install` once, then `bun run --cwd apps/extension test:e2e`. It opens an isolated browser with the real extension, checks coupon application, existing discounts, creator attribution preservation and the completed receipt, then closes its browser.
+For a browser smoke test against the running, seeded stack and demo, run `bun run --cwd apps/extension browser:install` once, then `bun run --cwd apps/extension test:e2e`. It opens an isolated browser with the real extension, checks coupon application, existing discounts, creator attribution preservation and the completed receipt, then closes its browser. `bun run --cwd apps/extension test:e2e:amazon` checks the Amazon reader and complete extension against isolated synthetic fixtures; it never contacts Amazon. Live Chrome validation is recorded separately.
 
 ## Shape
 

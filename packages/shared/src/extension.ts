@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { centsSchema, couponCodeSchema } from './contracts';
+import { amazonFocusRequestSchema, amazonInspectionSchema } from './amazon';
 
 export const popupRequestSchema = z.discriminatedUnion('type', [
+  amazonFocusRequestSchema,
   z.object({ type: z.literal('status') }).strict(),
   z.object({ type: z.literal('run') }).strict(),
   z.object({ type: z.literal('try-code'), code: couponCodeSchema }).strict(),
@@ -25,6 +27,7 @@ export const trialResultSchema = z.object({
 }).strict();
 export const trialResponseSchema = z.object({ result: trialResultSchema, reportNote: z.string() }).strict();
 export const popupStatusSchema = inspectionSchema.extend({
+  amazon: amazonInspectionSchema.optional(),
   supported: z.boolean(), hasToken: z.boolean(), merchantName: z.string().optional(),
   result: trialResultSchema.optional(), reportNote: z.string().optional(),
 }).strict();

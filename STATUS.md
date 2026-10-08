@@ -1,34 +1,33 @@
 # Project checkpoint
 
-Updated October 7, 2026. First paired implementation complete. **Local demo works; Amazon and Shopify are not implemented yet.**
+Updated October 7, 2026. **The installed Chrome extension now detects a real Amazon product coupon.** Automated checkout code trials still support the local demo only; Shopify is unfinished.
 
-## Finished
+## Finished this packet
 
-- Claude Code: extension safety checks, manual-code approval check, store-adapter structure and popup copy.
-- Codex: shared contracts, database migration, coupon review/approval workflow, API enforcement and integration fixes.
-- Three shopper confirmations establish effectiveness; separate evidence-backed review establishes eligibility for automated application. Unknown/private/creator/attribution-changing codes are blocked.
-- Real browser tests show unknown codes leave checkout unchanged, approved neutral codes work on creator referrals, better existing discounts are restored and no order is submitted.
-- Claude Code’s final backend review found no blocking issues.
+- Claude Code C4 completed popup, worker, manifest and build wiring. Codex integrated the shared contracts, observed Amazon reader, content script, safety fixes and tests.
+- Live Chrome: product B097S1MF28 showed **Coupon price $15.99, limit one item** inside the actual extension. **Show coupon on Amazon** focused its existing checkbox and left it unchecked. No purchase or cart change.
+- Offers are local observations, separate from community-verified codes. Product/offer changes and stale actions stop safely; selected coupons are not called confirmed savings.
+- Amazon inspection needs no running backend and stores no product snapshots. No cookie access, affiliate replacement or persistent Amazon host permission.
+- [Amazon scope and evidence](docs/AMAZON-INTEGRATION.md).
 
-## Verified
+## Validation
 
-- Dependency installation and all five workspace builds passed.
-- 83 unit tests, 51 live API/database/operator checks and 15 actual extension browser checks passed.
-- All five Docker containers are healthy as checked October 6.
-- Price and cashback services remain explicit stubs. There is no active affiliate revenue or payout ledger.
+- Frozen dependency install and all five builds passed; **88 unit tests** passed.
+- **15 Amazon reader fixture checks and 15 complete Amazon MV3 fixture checks** passed. The latter use a disposable test-only host grant; the real Chrome toolbar test separately confirmed the shipping activeTab permission.
+- **15 demo MV3 browser checks** passed, including unknown-code rejection, preserving better discounts, creator attribution and no order submission.
+- All five Docker containers are healthy as checked October 7. Prior backend integration checkpoint: **51 live API/Postgres/operator checks** passed; backend behavior was not changed by this Amazon packet.
+- Price and cashback remain explicit stubs. No affiliate revenue or payout ledger is active.
 
-## Next milestone
+## Next release gates
 
-Prove one actual Amazon product/cart workflow and one named Shopify checkout with real eligible offers and observed checkout behavior. Then expand to 3–5 Shopify stores for launch. These are required, unfinished features; the demo does not count as merchant support.
+The founder's target is a beta within a couple of days. The remaining work is concrete:
 
-October 7 review: Amazon sign-in, a real product's regular/Prime/subscription choices, its built-in price-history panel, and the extension's unsupported state were observed in Chrome. Product loading required retries. No cart was changed and no real coupon application was verified. Gymshark's public terms reveal customer restrictions and possible loss of free shipping after a coupon.
+1. Amazon: observe coupon activation and verify the resulting cart discount without ordering; product detection alone is not a verified saving.
+2. Shopify: one named checkout with real eligible public codes, measured improvement and restoration tests; expand to 3–5 stores.
+3. Beta release: recent verification, shopper onboarding, HTTPS API configuration, privacy/store listing and clean installation checks.
 
-The next implementation packet covers offer eligibility, recent verification and explicit store capability states before enabling live trials. Claude's review confirmed missing freshness checks and eligibility data; shopper independence still relies on operator verification. [Findings and acceptance criteria](docs/LIVE-STORE-REVIEW.md).
+Missing live coupon sources and attribution evidence cannot be replaced with synthetic votes. Public launch is not yet ready. The demo's real API/verification loop and trust/$1 policies are implemented; price tracking and cashback follow after the extension.
 
-Live coupon sources and merchant/network attribution agreements still need evidence. No launch date is committed. This review changed documentation only; the build/test counts above are the previous implementation results.
+## Coordination
 
-## Coordination and interruptions
-
-Claude Code completed four bounded packets: initial review, extension implementation, final backend review, and C3 launch gap review. C3 completed successfully with no permission denials or edits. Codex reviewed its recommendations and saved the findings alongside the browser and competitor evidence. No Claude packet remains running; no recurring background run is configured.
-
-One internal delegated run hit a usage limit; Codex took over its unfinished work. Current code and handoffs are saved in this repository. Future packets must be announced in chat, followed by a result or explicit interruption report and an updated checkpoint. Usage limits can interrupt execution; they must not leave the project’s state implicit.
+Claude C4 completed successfully with no permission denials. Codex reviewed and tested its handoff. One earlier internal review hit a usage limit; Codex took over. The final reviewer completed the isolated MV3 regression checks; Codex reran and passed all 45 browser checks after integration. All work packets are complete. No recurring background job is configured. This checkpoint and the coordination log record the actual state so the next session can resume without guessing.

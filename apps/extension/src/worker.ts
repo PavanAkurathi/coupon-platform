@@ -1,10 +1,17 @@
-import { candidatesResponseSchema, checkoutReadySchema, couponPreflightResponseSchema, couponReportSchema, couponReportResponseSchema, merchantsResponseSchema } from '@repo/shared';
+import { candidatesResponseSchema, checkoutReadySchema, couponPreflightResponseSchema, couponReportSchema, couponReportResponseSchema, merchantsResponseSchema, amazonProductAsin, amazonInspectionSchema, amazonFocusResponseSchema } from '@repo/shared';
+import type { AmazonInspection, AmazonFocusRequest } from '@repo/shared';
 import { z } from 'zod';
 import { API_ORIGIN, inspectionSchema, popupRequestSchema, resultMatchesCheckout, trialResultSchema, unavailableCheckout, type PopupStatus, type Reply, type TrialResult } from './protocol';
 import { adapterFor } from './adapters/registry';
 import { runApprovedTrial } from './gate';
 
 const running = new Set<number>();
+const badgeGenerations = new Map<number, number>();
+function nextBadgeGeneration(tabId: number): number {
+  const generation = (badgeGenerations.get(tabId) ?? 0) + 1;
+  badgeGenerations.set(tabId, generation);
+  return generation;
+}
 const secureStorage = Promise.all([
   chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
   chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
@@ -42,10 +49,41 @@ async function inspect(tabId: number) {
     return reply?.ok ? inspectionSchema.parse(reply.data) : unavailableCheckout;
   } catch { return unavailableCheckout; }
 }
+
+async function inspectAmazon(tab: chrome.tabs.Tab): Promise<AmazonInspection> {
+  const tabId = tab.id;
+  const asin = amazonProductAsin(tab.url);
+  const fallback: AmazonInspection = {
+    site: 'amazon-us', status: 'unavailable', asin,
+    productTitle: '', observedAt: new Date().toISOString(),
+    fingerprint: 'unavailable', offers: [], reason: 'Could not load the coupon reader.',
+  };
+  if (!tabId) return fallback;
+  const urlBefore = tab.url;
+  try {
+    const [injected] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: ['amazon-content.js'] });
+    const currentTab = await chrome.tabs.get(tabId);
+    if (currentTab.url !== urlBefore) return { ...fallback, reason: 'The page changed during inspection.' };
+    // Use documentId when available so the reply is bound to the exact injected document.
+    const sendOptions = injected?.documentId != null
+      ? ({ documentId: injected.documentId } as chrome.tabs.MessageSendOptions)
+      : { frameId: 0 };
+    const reply: Reply<unknown> = await chrome.tabs.sendMessage(tabId, { type: 'amazon-inspect' }, sendOptions);
+    if ((await chrome.tabs.get(tabId)).url !== urlBefore) return { ...fallback, reason: 'The page changed during inspection.' };
+    if (!reply?.ok) return fallback;
+    const inspection = amazonInspectionSchema.parse(reply.data);
+    if (inspection.asin !== asin) return { ...fallback, reason: 'Product mismatch during inspection.' };
+    return inspection;
+  } catch { return fallback; }
+}
+
 async function badge(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id) return;
+  const generation = nextBadgeGeneration(tab.id);
   let supported = false;
   try { supported = Boolean(await merchantFor(tab)); } catch { /* Offline is not supported. */ }
+  const current = await chrome.tabs.get(tab.id);
+  if (badgeGenerations.get(tab.id) !== generation || current.url !== tab.url || current.status === 'loading') return;
   await chrome.action.setBadgeText({ tabId: tab.id, text: supported ? '$' : '' });
   if (supported) await chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: '#215748' });
 }
@@ -53,6 +91,25 @@ async function status(): Promise<PopupStatus> {
   await secureStorage;
   const tab = await activeTab(); const tabId = tab.id!;
   const { shopperToken } = await chrome.storage.local.get('shopperToken');
+
+  // Amazon product inspection — before any merchant API calls; no DB dependency.
+  const asin = amazonProductAsin(tab.url);
+  const amazonPage = tab.url?.startsWith('https://www.amazon.com/');
+  if (amazonPage) {
+    const generation = nextBadgeGeneration(tabId);
+    const amazon: AmazonInspection = asin ? await inspectAmazon(tab) : {
+      site: 'amazon-us', status: 'unavailable', asin: null, productTitle: '',
+      observedAt: new Date().toISOString(), fingerprint: 'unsupported-page', offers: [],
+      reason: 'Open an Amazon.com product page to check visible coupons. Cart and checkout coupon testing are not available yet.',
+    };
+    if (badgeGenerations.get(tabId) === generation && (await chrome.tabs.get(tabId)).url === tab.url) {
+      await chrome.action.setBadgeText({ tabId, text: amazon.status === 'offers_found' ? '$' : '' });
+      if (amazon.status === 'offers_found') await chrome.action.setBadgeBackgroundColor({ tabId, color: '#215748' });
+    }
+    // Not stored in session — observations are ephemeral and not verified.
+    return { ...unavailableCheckout, supported: false, hasToken: Boolean(shopperToken), amazon };
+  }
+
   const merchant = await merchantFor(tab);
   const checkout = merchant ? await inspect(tabId) : unavailableCheckout;
   const saved = await chrome.storage.session.get(`result:${tabId}`);
@@ -60,6 +117,29 @@ async function status(): Promise<PopupStatus> {
   if (last?.result && !resultMatchesCheckout(last.result, checkout)) { last = undefined; await chrome.storage.session.remove(`result:${tabId}`); }
   return { supported: Boolean(merchant), merchantName: merchant?.name, ...checkout, busy: running.has(tabId) || checkout.busy, hasToken: Boolean(shopperToken), ...last };
 }
+
+async function focusAmazon(data: AmazonFocusRequest): Promise<{ focused: true }> {
+  const tab = await activeTab(); const tabId = tab.id!;
+  if (amazonProductAsin(tab.url) !== data.asin) throw new Error('This offer is no longer visible. Please reopen the extension on the product page.');
+  const observedMs = Date.parse(data.observedAt);
+  const now = Date.now();
+  if (isNaN(observedMs) || observedMs > now || now - observedMs > 2 * 60 * 1000) {
+    throw new Error('The offer observation has expired. Please open the extension again.');
+  }
+  const urlBefore = tab.url;
+  const [injected] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: ['amazon-content.js'] });
+  const currentTab = await chrome.tabs.get(tabId);
+  if (currentTab.url !== urlBefore) throw new Error('The page changed before the coupon control could be shown.');
+  const sendOptions = injected?.documentId != null
+    ? ({ documentId: injected.documentId } as chrome.tabs.MessageSendOptions)
+    : { frameId: 0 };
+  const reply: Reply<unknown> = await chrome.tabs.sendMessage(tabId, data, sendOptions);
+  if ((await chrome.tabs.get(tabId)).url !== urlBefore) throw new Error('The page changed. Check the product again.');
+  if (!reply?.ok) throw new Error(reply && !reply.ok ? reply.error : 'The coupon control could not be shown. Please try again.');
+  try { return amazonFocusResponseSchema.parse(reply.data); }
+  catch { throw new Error('The coupon control response was unexpected. Please try again.'); }
+}
+
 async function run(code?: string): Promise<{ result: TrialResult; reportNote: string }> {
   await secureStorage;
   const tab = await activeTab(); const tabId = tab.id!;
@@ -125,6 +205,7 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
     if (data.type === 'status') return status();
     if (data.type === 'run') return run();
     if (data.type === 'try-code') return run(data.code);
+    if (data.type === 'amazon-focus') return focusAmazon(data);
     await secureStorage;
     if (data.token) await chrome.storage.local.set({ shopperToken: data.token });
     else await chrome.storage.local.remove('shopperToken');
@@ -136,8 +217,12 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
   return true;
 });
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
-  if (change.status === 'loading' || change.url) void chrome.storage.session.remove(`result:${tabId}`);
+  if (change.status === 'loading' || change.url) {
+    nextBadgeGeneration(tabId);
+    void chrome.storage.session.remove(`result:${tabId}`);
+    void chrome.action.setBadgeText({ tabId, text: '' }).catch(() => undefined);
+  }
   if (change.status === 'complete' || change.url) void badge(tab).catch(() => undefined);
 });
-chrome.tabs.onRemoved.addListener((tabId) => { running.delete(tabId); void chrome.storage.session.remove(`result:${tabId}`); });
+chrome.tabs.onRemoved.addListener((tabId) => { badgeGenerations.delete(tabId); running.delete(tabId); void chrome.storage.session.remove(`result:${tabId}`); });
 chrome.runtime.onInstalled.addListener(() => { void chrome.tabs.query({}).then((tabs) => Promise.all(tabs.map(badge))).catch(() => undefined); });
