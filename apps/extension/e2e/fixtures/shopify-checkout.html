@@ -36,4 +36,72 @@
     </div>
   </section>
 </aside>
+<script>
+// Behavior copied from the October 8 Allbirds observation: asynchronous apply and
+// remove, chips with "Remove <CODE>", an "Order discount" heading row without a cell,
+// a code row with "− $X.XX", and estimated tax that follows the discounted subtotal.
+// The page renders only after an action, so static reader checks see the markup above.
+(() => {
+  const codes = window.__fixtureCodes = { WELCOME10: (sub) => Math.round(sub * 0.1), SAVE5: () => 500 };
+  const state = window.__fixtureState = { subtotal: 2500, applied: [], delay: 400, removeWorks: true };
+  const money = (cents) => '$' + (cents / 100).toFixed(2);
+  const discountOf = (code) => codes[code](state.subtotal);
+  const totals = () => {
+    const discount = state.applied.reduce((sum, code) => sum + discountOf(code), 0);
+    const tax = Math.round((state.subtotal - discount) * 0.0076);
+    return { discount, tax, total: state.subtotal - discount + tax };
+  };
+  const field = () => document.getElementById('ReductionsInput-1');
+  function render() {
+    const { discount, tax, total } = totals();
+    const group = document.querySelector('#money-lines [role="rowgroup"]');
+    group.querySelectorAll('.fixture-discount').forEach((row) => row.remove());
+    document.querySelector('#subtotal-row [role="cell"]').textContent = money(state.subtotal);
+    document.querySelector('#tax-row [role="cell"]').textContent = money(tax);
+    document.querySelector('#total-row [role="cell"]').textContent = 'USD ' + money(total);
+    const before = document.getElementById('shipping-row');
+    if (state.applied.length) {
+      const heading = document.createElement('div'); heading.setAttribute('role', 'row'); heading.className = 'fixture-discount';
+      heading.innerHTML = '<div role="rowheader"><div><span>Order discount</span></div></div>';
+      before.before(heading);
+      for (const code of state.applied) {
+        const row = document.createElement('div'); row.setAttribute('role', 'row'); row.className = 'fixture-discount';
+        row.innerHTML = `<div role="rowheader"><div><span>${code}</span></div></div><div role="cell"><span translate="no">− ${money(discountOf(code))}</span></div>`;
+        before.before(row);
+      }
+      const saved = document.createElement('div'); saved.setAttribute('role', 'row'); saved.className = 'fixture-discount';
+      saved.innerHTML = `<div role="rowheader"><div><strong>TOTAL SAVINGS</strong><strong translate="no">${money(discount)}</strong></div></div><div role="cell"></div>`;
+      document.getElementById('total-row').after(saved);
+    }
+    let list = document.getElementById('applied-codes');
+    if (!list) { list = document.createElement('ul'); list.id = 'applied-codes'; list.setAttribute('role', 'list'); list.setAttribute('aria-label', 'Discount code or gift card'); document.getElementById('discount-form').after(list); }
+    list.innerHTML = state.applied.map((code, i) => `<li><div id="tag-${i}" role="group"><span dir="auto">${code}</span><button type="button" aria-label="Remove ${code}" data-code="${code}">×</button></div></li>`).join('');
+  }
+  window.__fixtureApply = (code) => { state.applied.push(code); render(); };
+  window.__fixtureChangeCart = (subtotal) => { state.subtotal = subtotal; render(); };
+  document.getElementById('discount-form').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const code = field().value.trim().toUpperCase();
+    setTimeout(() => {
+      const error = document.getElementById('error-for-ReductionsInput-1');
+      if (codes[code] && !state.applied.includes(code)) {
+        state.applied.push(code); field().value = ''; field().removeAttribute('aria-invalid'); error.textContent = '';
+      } else {
+        field().setAttribute('aria-invalid', 'true'); field().setAttribute('aria-describedby', 'error-for-ReductionsInput-1');
+        error.textContent = 'Enter a valid discount code or gift card';
+      }
+      render();
+    }, state.delay);
+  });
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest && event.target.closest('#applied-codes button[aria-label^="Remove "]');
+    if (!button) return;
+    setTimeout(() => {
+      if (state.removeWorks) state.applied = state.applied.filter((code) => code !== button.dataset.code); render();
+      // Observed live: the discount form re-renders after a removal and clears the field late.
+      setTimeout(() => { field().value = ''; }, 900);
+    }, state.delay);
+  });
+})();
+</script>
 </body></html>

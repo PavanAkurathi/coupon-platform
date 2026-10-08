@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { isShopifyCheckout, shopifyCheckoutInspectionSchema } from './shopify';
+import { isShopifyCheckout, shopifyCheckoutInspectionSchema, shopifyContentRequestSchema } from './shopify';
 
 const enabled = ['mvmt.com', 'www.allbirds.com'];
 describe('Shopify checkout boundary', () => {
@@ -18,11 +18,19 @@ describe('Shopify checkout boundary', () => {
   });
   test('observations carry amounts only and never stale ones', () => {
     const ready = {platform:'shopify', status:'ready', observedAt:'2026-10-08T14:00:00.000Z', subtotalCents:2500, discountCents:0,
-      totalCents:2817, totalIsEstimate:true, discountField:'available', codeRejected:false, reason:'Order summary read.'};
+      totalCents:2817, totalIsEstimate:true, discountField:'available', codeRejected:false, appliedCodes:[], reason:'Order summary read.'};
     expect(shopifyCheckoutInspectionSchema.safeParse(ready).success).toBe(true);
     expect(shopifyCheckoutInspectionSchema.safeParse({...ready, totalCents:null}).success).toBe(false);
     expect(shopifyCheckoutInspectionSchema.safeParse({...ready, status:'unavailable'}).success).toBe(false);
     expect(shopifyCheckoutInspectionSchema.safeParse({...ready, checkoutToken:'hWN4'}).success).toBe(false);
     expect(shopifyCheckoutInspectionSchema.safeParse({...ready, email:'a@b.c'}).success).toBe(false);
+    expect(shopifyCheckoutInspectionSchema.safeParse({...ready, appliedCodes:['CREATOR10']}).success).toBe(true);
+    expect(shopifyCheckoutInspectionSchema.safeParse({...ready, status:'unavailable', subtotalCents:null, discountCents:null, totalCents:null, appliedCodes:['X1']}).success).toBe(false);
+  });
+  test('content requests carry an exact host and gated codes only', () => {
+    expect(shopifyContentRequestSchema.safeParse({type:'shopify-trial', host:'www.allbirds.com', codes:['welcome10']}).success).toBe(true);
+    expect(shopifyContentRequestSchema.safeParse({type:'shopify-trial', host:'www.allbirds.com', codes:[]}).success).toBe(false);
+    expect(shopifyContentRequestSchema.safeParse({type:'shopify-trial', host:'www.allbirds.com', codes:['A B']}).success).toBe(false);
+    expect(shopifyContentRequestSchema.safeParse({type:'shopify-trial', host:'www.allbirds.com', codes:['SAVE5'], pay:true}).success).toBe(false);
   });
 });

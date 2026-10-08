@@ -5,7 +5,7 @@ import { shopifyCheckoutInspectionSchema } from '@repo/shared';
 // Every request in this isolated browser is intercepted. No live store, shopper
 // profile, cookies, backend or purchase is used by this fixture suite.
 const fixture = await Bun.file(`${import.meta.dir}/fixtures/shopify-checkout.html`).text();
-const build = await Bun.build({entrypoints:[`${import.meta.dir}/../src/shopify-checkout-reader.ts`], target:'browser', format:'esm'});
+const build = await Bun.build({entrypoints:[`${import.meta.dir}/shopify-reader-global.ts`], target:'browser', format:'iife'});
 if (!build.success) throw new AggregateError(build.logs, 'Shopify reader test bundle failed');
 const source = await build.outputs[0]!.text();
 const browser = await chromium.launch({headless:true,
@@ -23,7 +23,7 @@ async function reset(url = checkoutUrl) {
   await page.goto(url);
   await page.evaluate(async (source) => {
     const globals = window as any;
-    globals.__reader = await import(URL.createObjectURL(new Blob([source], {type:'text/javascript'})));
+    (0, eval)(source); globals.__reader = globals.__shopifyReader;
     globals.__clicks = 0; globals.__submits = 0; globals.__inputs = 0;
     document.addEventListener('click', () => globals.__clicks++, true);
     document.addEventListener('input', () => globals.__inputs++, true);
@@ -109,4 +109,68 @@ try {
     check(`${label} is outside reader capability even with matching HTML`, () => { assert.equal(outside.status, 'unavailable'); assert.equal(outside.totalCents, null); });
   }
   console.log(`Shopify checkout reader: ${checks} fixture browser checks passed. No live shopping traffic.`);
+
+  // Trial adapter against the fixture's observed apply/remove behavior.
+  let trialChecks = 0;
+  const trialCheck = (label: string, action: () => void) => { action(); trialChecks++; console.log(`PASS ${label}`); };
+  const trial = (codes: string[]) => page.evaluate(async (codes) => {
+    try { return {ok:true, value:await (window as any).__reader.createShopifyAdapter('www.allbirds.com').runTrials(codes)}; }
+    catch (error) { return {ok:false, error:String((error as Error).message)}; }
+  }, codes);
+  const sideEffects = () => page.evaluate(() => ({
+    pay:(window as any).__payClicks, email:(document.getElementById('email') as HTMLInputElement).value,
+    marketing:(document.getElementById('marketing') as HTMLInputElement).checked, url:location.href,
+    applied:(window as any).__fixtureState.applied, field:(document.getElementById('ReductionsInput-1') as HTMLInputElement).value,
+  }));
+  const watchPay = () => page.evaluate(() => { (window as any).__payClicks = 0; document.addEventListener('click', (e) => { if ((e.target as Element).closest?.('#checkout-pay-button')) (window as any).__payClicks++; }, true); });
+
+  await reset(); await watchPay();
+  const best = await trial(['BAD1', 'WELCOME10', 'SAVE5']);
+  const afterBest = await sideEffects(); const bestRead = await inspect();
+  trialCheck('trials keep the code with the lowest payable total and report each outcome', () => {
+    assert.equal(best.ok, true, best.error);
+    assert.equal(best.value.appliedCode, 'SAVE5');
+    assert.deepEqual(best.value.attempts.map((a: any) => [a.code, a.outcome]), [['BAD1', 'failure'], ['WELCOME10', 'success'], ['SAVE5', 'success']]);
+    assert.equal(best.value.totalCents, bestRead.totalCents); assert.equal(best.value.savingsCents, 2519 - bestRead.totalCents!);
+  });
+  trialCheck('only the best code stays applied and the rejected text is cleared', () => { assert.deepEqual(afterBest.applied, ['SAVE5']); assert.equal(afterBest.field, ''); });
+  trialCheck('trials never touch contact, consent, Pay now or the attribution URL', () => {
+    assert.equal(afterBest.pay, 0); assert.equal(afterBest.email, ''); assert.equal(afterBest.marketing, true); assert.equal(afterBest.url, checkoutUrl);
+  });
+  trialCheck('savings include the tax change, measured on the payable total', () => assert.equal(best.value.attempts[2].savingsCents, 2519 - bestRead.totalCents!));
+
+  await reset();
+  await page.evaluate(() => { (window as any).__fixtureCodes.CREATOR10 = () => 300; (window as any).__fixtureApply('CREATOR10'); });
+  const existing = await trial(['SAVE5']); const keptExisting = await sideEffects();
+  trialCheck('an existing code is left exactly in place and no trial runs', () => {
+    assert.equal(existing.ok, false); assert.match(existing.error!, /CREATOR10 is already applied/); assert.deepEqual(keptExisting.applied, ['CREATOR10']);
+  });
+
+  await reset();
+  const none = await trial(['BAD1', 'BAD2']); const noneRead = await inspect();
+  trialCheck('when nothing works, the checkout is left as it was', () => {
+    assert.equal(none.ok, true); assert.equal(none.value.appliedCode, ''); assert.equal(none.value.savingsCents, 0); assert.equal(noneRead.totalCents, 2519);
+    assert.ok(none.value.attempts.every((a: any) => a.outcome === 'failure'));
+  });
+
+  await reset(); await page.evaluate(() => { (window as any).__fixtureState.delay = 2500; });
+  const slow = await trial(['BAD1', 'WELCOME10']);
+  trialCheck('a slow valid code after a rejection is not misread as rejected', () => {
+    assert.equal(slow.ok, true, slow.error); assert.equal(slow.value.appliedCode, 'WELCOME10');
+  });
+
+  await reset();
+  await page.evaluate(() => { const form = document.getElementById('discount-form')!; form.addEventListener('submit', () => setTimeout(() => (window as any).__fixtureChangeCart(5000), 100), {once:true}); });
+  const changed = await trial(['WELCOME10']); const afterChange = await sideEffects();
+  trialCheck('a cart change stops testing, never mutates the changed cart and names the code left applied', () => {
+    assert.equal(changed.ok, false); assert.match(changed.error!, /cart changed/i); assert.match(changed.error!, /WELCOME10 may still be applied/);
+    assert.deepEqual(afterChange.applied, ['WELCOME10']);
+  });
+
+  await reset(); await page.evaluate(() => { (window as any).__fixtureState.removeWorks = false; });
+  const stuck = await trial(['WELCOME10', 'SAVE5']);
+  trialCheck('a removal the store never confirms stops with a review message', () => {
+    assert.equal(stuck.ok, false); assert.match(stuck.error!, /did not confirm/);
+  });
+  console.log(`Shopify trial adapter: ${trialChecks} fixture browser checks passed. No live shopping traffic.`);
 } finally { await context.close(); await browser.close(); }

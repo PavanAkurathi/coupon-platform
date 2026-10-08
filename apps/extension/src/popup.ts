@@ -24,7 +24,7 @@ async function onLocalDemoHost(): Promise<boolean> {
   } catch { return false; }
 }
 function controls() {
-  const unavailable = busy || !state?.supported || !state.checkout || state.completed || state.busy;
+  const unavailable = busy || !state?.supported || !state.checkout || state.completed || state.busy || Boolean(state?.shopify?.appliedCodes.length);
   primary.disabled = Boolean(unavailable); testCode.disabled = Boolean(unavailable || !state?.hasToken);
   primary.querySelector("span")!.textContent = busy || state?.busy ? "Checking codes…" : "Try codes for me";
 }
@@ -228,6 +228,7 @@ async function refresh() {
   }
 
   hideAmazonMode(state.supported);
+  if (state.shopify) el("env-pill").hidden = true;
   const localDemo = !state.supported && await onLocalDemoHost();
   el("store").textContent = state.merchantName ? `${state.merchantName} · checkout` : "A little help at checkout";
   demoLink.hidden = !localDemo;
@@ -239,6 +240,9 @@ async function refresh() {
     el("description").textContent = "This page isn't a supported store or checkout.";
     status(localDemo ? "Try the local demo checkout or open an Amazon product page." : "Open an Amazon.com product page or order review to check coupons.");
   }
+  else if (state.shopify?.appliedCodes.length) status(`${state.shopify.appliedCodes.join(", ")} is already applied. We leave existing codes in place.`);
+  else if (state.shopify && !state.checkout) status(state.shopify.reason || "Open the checkout and wait for the order summary to load.");
+  else if (state.shopify) status(state.shopify.totalIsEstimate ? "We'll try verified codes and keep the best total. Shipping and tax are estimates until you add an address." : "We'll try verified codes and keep the best total.");
   else if (!state.checkout) status("Refresh the checkout page to connect the extension.");
   else if (state.completed) status("This demo order is complete. Start a new cart to test codes.");
   else if (state.busy) status("Testing is running. You can reopen this popup when it finishes.");

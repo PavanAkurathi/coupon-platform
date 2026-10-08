@@ -58,12 +58,12 @@ function betaApiOrigin(raw: string | undefined): string {
 
 // Bundle and check everything in memory first: a failed build never touches the previous output.
 // content.js is the localhost demo checkout script; beta ships without it.
-const entries = target === "dev" ? ["worker", "popup", "content", "amazon-content"] : ["worker", "popup", "amazon-content"];
+const entries = target === "dev" ? ["worker", "popup", "content", "amazon-content", "shopify-content"] : ["worker", "popup", "amazon-content", "shopify-content"];
 const bundles = new Map<string, string>();
 for (const entry of entries) {
   const result = await Bun.build({
     entrypoints: [`${dir}/src/${entry}.ts`], target: "browser",
-    format: entry === "content" || entry === "amazon-content" ? "iife" : "esm", minify: true,
+    format: entry === "worker" || entry === "popup" ? "esm" : "iife", minify: true,
     define: { __BUILD_TARGET__: JSON.stringify(target), __API_ORIGIN__: JSON.stringify(apiOrigin) },
   });
   if (!result.success || result.outputs.length !== 1) throw new AggregateError(result.logs, `${entry} build failed`);

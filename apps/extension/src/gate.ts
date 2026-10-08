@@ -24,6 +24,8 @@ type TrialGateDependencies<T> = {
   beforeDispatch?(): Promise<void>;
   dispatch(codes: string[]): Promise<T>;
   now?(): number;
+  // Runtime-enabled merchants (Shopify) are not in the static registry.
+  supports?(url: string): boolean;
 };
 
 // The only path from a coupon API response to trial dispatch. Read-only checks
@@ -32,7 +34,8 @@ export async function runApprovedTrial<T>(
   request: { merchantId: string; url: string; code?: string },
   dependencies: TrialGateDependencies<T>,
 ): Promise<T> {
-  if (!adapterFor(request.url)) throw new Error('This checkout is not supported yet.');
+  const supports = dependencies.supports ?? ((url: string) => Boolean(adapterFor(url)));
+  if (!supports(request.url)) throw new Error('This checkout is not supported yet.');
   const now = dependencies.now ?? Date.now;
   let codes: string[];
   if (request.code) {

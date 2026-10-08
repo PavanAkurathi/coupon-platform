@@ -6,6 +6,8 @@ import { isShopifyCheckout, shopifyCheckoutInspectionSchema, type ShopifyCheckou
 const MONEY_LINES = 'div[role="table"][aria-labelledby^="MoneyLine-Heading"]';
 const DISCOUNT_FIELD = 'input[name="reductions"][type="text"]';
 const APPLY = 'button[type="submit"][aria-label="Apply Discount Code"]';
+// Applied codes render as chips in a list, each with "Remove <CODE>" (observed on Allbirds).
+const CODE_CHIP_REMOVE = 'ul[role="list"] [role="group"] button[type="button"][aria-label^="Remove "]';
 const UNRECOGNIZED = 'The order summary is still updating or its layout is not recognized. Review the totals in checkout, then check again.';
 
 // Signed cents for an observed amount such as "$19.00", "USD $28.17" or "-$5.00".
@@ -29,8 +31,12 @@ const firstLine = (element: HTMLElement) => element.innerText.split('\n').map((l
 function unavailable(now: number, reason: string): ShopifyCheckoutInspection {
   return shopifyCheckoutInspectionSchema.parse({
     platform:'shopify', status:'unavailable', observedAt:new Date(now).toISOString(), subtotalCents:null, discountCents:null,
-    totalCents:null, totalIsEstimate:true, discountField:'missing', codeRejected:false, reason,
+    totalCents:null, totalIsEstimate:true, discountField:'missing', codeRejected:false, appliedCodes:[], reason,
   });
+}
+export function appliedCodes(): string[] {
+  return [...document.querySelectorAll<HTMLButtonElement>(CODE_CHIP_REMOVE)].filter(visible)
+    .map((button) => button.getAttribute('aria-label')!.slice('Remove '.length).trim()).filter(Boolean).slice(0, 10);
 }
 
 export function inspectShopifyCheckout(enabledHosts: readonly string[], now = Date.now()): ShopifyCheckoutInspection {
@@ -45,9 +51,10 @@ export function inspectShopifyCheckout(enabledHosts: readonly string[], now = Da
     if (!visible(row)) continue;
     const headers = [...row.querySelectorAll('[role="rowheader"]')].filter(visible);
     const cells = [...row.querySelectorAll('[role="cell"]')].filter(visible);
-    // The live table opens with a column-header row that has neither; skip it.
-    // A row with only one half could misalign labels and amounts, so it fails closed.
-    if (!headers.length && !cells.length) continue;
+    // Observed non-amount rows: the opening column-header row (neither part) and
+    // the "Order discount" heading (a rowheader only). Required rows that lose
+    // their amount still fail below, because Subtotal and Total must be present.
+    if (!cells.length && headers.length <= 1) continue;
     if (headers.length !== 1 || cells.length !== 1) return unavailable(now, UNRECOGNIZED);
     lines.push({ label: firstLine(headers[0]!), amount: cells[0]!.innerText.replace(/\s+/g, ' ').trim() });
   }
@@ -78,7 +85,7 @@ export function inspectShopifyCheckout(enabledHosts: readonly string[], now = Da
   return shopifyCheckoutInspectionSchema.parse({
     platform:'shopify', status:'ready', observedAt:new Date(now).toISOString(),
     subtotalCents, discountCents, totalCents, totalIsEstimate,
-    discountField: field && apply.length === 1 ? 'available' : 'missing', codeRejected,
+    discountField: field && apply.length === 1 ? 'available' : 'missing', codeRejected, appliedCodes: appliedCodes(),
     reason: totalIsEstimate ? 'Totals shown by the store. Shipping or taxes are estimated until an address is entered.' : 'Totals shown by the store.',
   });
 }

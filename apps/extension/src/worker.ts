@@ -1,5 +1,5 @@
-import { candidatesResponseSchema, checkoutReadySchema, couponPreflightResponseSchema, couponReportSchema, couponReportResponseSchema, merchantsResponseSchema, amazonProductAsin, amazonInspectionSchema, amazonFocusResponseSchema, amazonCheckoutInspectionSchema, isAmazonCheckout } from '@repo/shared';
-import type { AmazonInspection, AmazonFocusRequest, AmazonCheckoutInspection } from '@repo/shared';
+import { candidatesResponseSchema, checkoutReadySchema, couponPreflightResponseSchema, couponReportSchema, couponReportResponseSchema, merchantsResponseSchema, amazonProductAsin, amazonInspectionSchema, amazonFocusResponseSchema, amazonCheckoutInspectionSchema, isAmazonCheckout, isShopifyCheckout, shopifyCheckoutInspectionSchema } from '@repo/shared';
+import type { AmazonInspection, AmazonFocusRequest, AmazonCheckoutInspection, CheckoutInspection, ShopifyCheckoutInspection } from '@repo/shared';
 import { z } from 'zod';
 import { API_ORIGIN, inspectionSchema, popupRequestSchema, resultMatchesCheckout, trialResultSchema, unavailableCheckout, type PopupStatus, type Reply, type TrialResult } from './protocol';
 import { adapterFor } from './adapters/registry';
@@ -46,6 +46,42 @@ async function merchantFor(tab: chrome.tabs.Tab): Promise<Merchant | undefined> 
   const { merchants } = await api('/v1/merchants', merchantsResponseSchema);
   // New merchants need a reviewed adapter + manifest access before activation.
   return merchants.find((merchant) => merchant.domain === meta.merchantDomain);
+}
+// Shopify stores are enabled per exact host by an operator, not by the static
+// registry. The coupon service is consulted only when the page is shaped like a
+// Shopify checkout on its own host, so ordinary browsing triggers no API call.
+async function shopifyMerchantFor(tab: chrome.tabs.Tab): Promise<Merchant | undefined> {
+  let host: string;
+  try { host = new URL(tab.url ?? '').hostname; } catch { return undefined; }
+  if (!isShopifyCheckout(tab.url, [host])) return undefined;
+  const { merchants } = await api('/v1/merchants', merchantsResponseSchema);
+  return merchants.find((merchant) => merchant.domain === host && isShopifyCheckout(tab.url, [merchant.domain]));
+}
+const unavailableShopify = (reason: string): ShopifyCheckoutInspection => ({
+  platform: 'shopify', status: 'unavailable', observedAt: new Date().toISOString(), subtotalCents: null, discountCents: null,
+  totalCents: null, totalIsEstimate: true, discountField: 'missing', codeRejected: false, appliedCodes: [], reason,
+});
+// Injects the Shopify reader with temporary activeTab access and binds the reply to
+// that document. The URL must be unchanged before injection, after it and after the reply.
+async function shopifyDocument(tab: chrome.tabs.Tab, host: string): Promise<chrome.tabs.MessageSendOptions> {
+  const tabId = tab.id!;
+  const unchanged = async () => (await chrome.tabs.get(tabId)).url === tab.url && isShopifyCheckout(tab.url, [host]);
+  if (!await unchanged()) throw new Error('The checkout changed. Open the extension again.');
+  const [injected] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: ['shopify-content.js'] });
+  if (!await unchanged()) throw new Error('The checkout changed. Open the extension again.');
+  return injected?.documentId != null ? ({ documentId: injected.documentId } as chrome.tabs.MessageSendOptions) : { frameId: 0 };
+}
+async function inspectShopify(tab: chrome.tabs.Tab, host: string): Promise<ShopifyCheckoutInspection> {
+  try {
+    const target = await shopifyDocument(tab, host);
+    const reply: Reply<unknown> = await chrome.tabs.sendMessage(tab.id!, { type: 'shopify-inspect', host }, target);
+    if ((await chrome.tabs.get(tab.id!)).url !== tab.url) return unavailableShopify('The checkout changed while it was being read.');
+    return reply?.ok ? shopifyCheckoutInspectionSchema.parse(reply.data) : unavailableShopify('Could not read the order summary.');
+  } catch { return unavailableShopify('Could not read the order summary.'); }
+}
+function shopifyCheckout(shopify: ShopifyCheckoutInspection): CheckoutInspection {
+  if (shopify.status !== 'ready' || shopify.discountField !== 'available') return unavailableCheckout;
+  return { checkout: true, busy: false, completed: false, cartKey: `shopify:${shopify.subtotalCents}`, totalCents: shopify.totalCents, appliedCode: shopify.appliedCodes[0]?.toUpperCase() ?? '' };
 }
 async function activeTab(): Promise<chrome.tabs.Tab> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -169,6 +205,21 @@ async function status(): Promise<PopupStatus> {
     return { ...unavailableCheckout, supported: false, hasToken: Boolean(shopperToken), amazon };
   }
 
+  const shopifyMerchant = adapterFor(tab.url) ? undefined : await shopifyMerchantFor(tab);
+  if (shopifyMerchant) {
+    const generation = nextBadgeGeneration(tabId);
+    const shopify = await inspectShopify(tab, shopifyMerchant.domain);
+    const checkout = shopifyCheckout(shopify);
+    if (badgeGenerations.get(tabId) === generation && (await chrome.tabs.get(tabId)).url === tab.url) {
+      await chrome.action.setBadgeText({ tabId, text: checkout.checkout ? '$' : '' });
+      if (checkout.checkout) await chrome.action.setBadgeBackgroundColor({ tabId, color: '#215748' });
+    }
+    const saved = await chrome.storage.session.get(`result:${tabId}`);
+    let last = saved[`result:${tabId}`] as { result?: TrialResult; reportNote?: string } | undefined;
+    if (last?.result && !resultMatchesCheckout(last.result, checkout)) { last = undefined; await chrome.storage.session.remove(`result:${tabId}`); }
+    return { supported: true, merchantName: shopifyMerchant.name, ...checkout, busy: running.has(tabId), hasToken: Boolean(shopperToken), shopify, ...last };
+  }
+
   const merchant = await merchantFor(tab);
   const checkout = merchant ? await inspect(tabId) : unavailableCheckout;
   const saved = await chrome.storage.session.get(`result:${tabId}`);
@@ -206,10 +257,19 @@ async function run(code?: string): Promise<{ result: TrialResult; reportNote: st
   if (isAmazonCheckout(tab.url)) throw new Error('Amazon checkout is review-only. Codes are not tested here.');
   if (running.has(tabId)) throw new Error('Coupon testing is already running.');
   running.add(tabId);
+  // Long Shopify runs make no other extension calls; a periodic call keeps the worker alive.
+  const keepAlive = setInterval(() => { void chrome.runtime.getPlatformInfo().catch(() => undefined); }, 20_000);
   try {
-    const merchant = await merchantFor(tab);
-    if (!merchant) throw new Error('This store is not supported yet. Try the local demo checkout.');
-    const checkout = await inspect(tabId);
+    const shopifyMerchant = adapterFor(tab.url) ? undefined : await shopifyMerchantFor(tab);
+    const merchant = shopifyMerchant ?? await merchantFor(tab);
+    if (!merchant) throw new Error('This store is not supported yet.');
+    const host = shopifyMerchant?.domain;
+    const read = async () => host ? shopifyCheckout(await inspectShopify(tab, host)) : inspect(tabId);
+    if (host) {
+      const shopify = await inspectShopify(tab, host);
+      if (shopify.appliedCodes.length) throw new Error(`${shopify.appliedCodes.join(', ')} is already applied. We leave existing codes in place; remove it yourself if you want us to compare codes.`);
+    }
+    const checkout = await read();
     if (!checkout.checkout || checkout.busy || checkout.completed) throw new Error('Open an active checkout, wait for it to finish updating, then try again.');
     const { shopperToken } = await chrome.storage.local.get('shopperToken');
     const token = typeof shopperToken === 'string' ? shopperToken : undefined;
@@ -224,11 +284,15 @@ async function run(code?: string): Promise<{ result: TrialResult; reportNote: st
         `/v1/coupons/candidates?merchantId=${encodeURIComponent(merchant.id)}&limit=10`,
         candidatesResponseSchema,
       ),
+      supports: (url) => host ? isShopifyCheckout(url, [host]) : Boolean(adapterFor(url)),
       beforeDispatch: async () => {
         const currentTab = await chrome.tabs.get(tabId);
-        if (currentTab.url !== tab.url || !adapterFor(currentTab.url)) throw new Error('The checkout changed. Open the extension again.');
+        const supported = host ? isShopifyCheckout(currentTab.url, [host]) : Boolean(adapterFor(currentTab.url));
+        if (currentTab.url !== tab.url || !supported) throw new Error('The checkout changed. Open the extension again.');
       },
-      dispatch: (codes) => chrome.tabs.sendMessage(tabId, { type: 'trial', codes }, { frameId: 0 }),
+      dispatch: async (codes) => host
+        ? chrome.tabs.sendMessage(tabId, { type: 'shopify-trial', host, codes }, await shopifyDocument(tab, host))
+        : chrome.tabs.sendMessage(tabId, { type: 'trial', codes }, { frameId: 0 }),
     });
     if (!raw?.ok) throw new Error(raw && !raw.ok ? raw.error : 'The checkout did not respond. Please review your coupon and total.');
     const result = trialResultSchema.parse(raw.data);
@@ -244,10 +308,10 @@ async function run(code?: string): Promise<{ result: TrialResult; reportNote: st
       else if (result.attempts.length) reportNote = 'Your results helped check these codes.';
     }
     const response = { result, reportNote };
-    if (!resultMatchesCheckout(result, await inspect(tabId))) throw new Error('Your cart changed after testing. Please check your coupon and total.');
+    if (!resultMatchesCheckout(result, await read())) throw new Error('Your cart changed after testing. Please check your coupon and total.');
     await chrome.storage.session.set({ [`result:${tabId}`]: response });
     return response;
-  } finally { running.delete(tabId); }
+  } finally { clearInterval(keepAlive); running.delete(tabId); }
 }
 
 chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
