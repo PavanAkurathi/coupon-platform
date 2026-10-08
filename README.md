@@ -2,7 +2,7 @@
 
 A small, runnable coupon MVP: an MV3 extension, a real coupon API, and two explicit service stubs. Neutral naming throughout. Bun 1.3.14+, Docker, Chrome/Chromium; USD only for the first release.
 
-Current progress: [STATUS.md](STATUS.md). Live-store observations and the next build packet: [October 7 review](docs/LIVE-STORE-REVIEW.md).
+Current progress: [STATUS.md](STATUS.md) and [beta readiness](docs/BETA-READINESS.md). Live-store evidence: [Amazon](docs/AMAZON-CHECKOUT-EVIDENCE.md), [Shopify](docs/SHOPIFY-CHECKOUT-EVIDENCE.md). Beta hosting: [Neon](docs/DEPLOY-NEON.md).
 
 ## Run
 
@@ -17,9 +17,9 @@ bun run demo
 
 Load `apps/extension/dist` as an unpacked extension at `chrome://extensions` (Developer mode). Open `http://localhost:4173/checkout`, then click **Try codes for me**. The demo has a $100 cart, `WELCOME10` ($10) and `SAVE15` ($15); the best total wins. `NEW20` ($20) and `LEGACY5` ($5) have fixture safety approval but start without shopper confirmations, for manual-code testing. All seed approvals and confirmations are synthetic localhost fixtures, never production evidence. Seeding is explicit and disabled under `NODE_ENV=production`.
 
-**Amazon.com product coupons:** open a product page, then the extension. It reads visible native coupon offers locally and offers **Show coupon on Amazon**, which scrolls/focuses the existing control. It does not select the coupon or verify a checkout discount. This uses temporary access when you open the popup; no persistent Amazon permission, API upload or browsing-history storage. Unknown layouts stop safely. [Scope and live evidence](docs/AMAZON-INTEGRATION.md).
+**Amazon.com product coupons:** open a product page, then the extension. It reads visible native coupon offers locally and offers **Show coupon on Amazon**, which scrolls/focuses the existing control. It does not select the coupon. On Amazon's order review page it reads the coupon savings and order total Amazon displays, labelled "Order not placed. No commission claimed." Codes are never tested on Amazon. This uses temporary access when you open the popup; no persistent Amazon permission, API upload or browsing-history storage. Unknown layouts stop safely. [Scope and live evidence](docs/AMAZON-INTEGRATION.md).
 
-**Automated coupon-code trials currently support the local demo checkout only.** Amazon cart/checkout automation and Shopify adapters remain unfinished. New trial adapters require observed controls, approved coupon sources, explicit access and checkout regression tests.
+**Automated coupon-code trials currently support the local demo checkout only.** A shared Shopify checkout reader is verified live on MVMT and Allbirds (`bun run --cwd apps/extension e2e/shopify-live-check.ts --live-approved <hosts>` needs founder approval per store), but trials stay off until an accepted code's layout has been observed. New trial adapters require observed controls, approved coupon sources, explicit access and checkout regression tests.
 
 To report results, issue a token for an operator-verified beta shopper, then paste it into the popup's Community settings:
 
@@ -55,8 +55,8 @@ Ports: coupon API `3001`, price `3002`, cashback `3003`, demo `4173`. Every Comp
 
 | Method | Route | Behavior |
 |---|---|---|
-| GET | `/v1/merchants` | Explicitly supported merchant records |
-| GET | `/v1/coupons/candidates?merchantId=<uuid>&limit=10` | Verified only; expiration filtered; rank by `successRate × expectedSavingsCents` |
+| GET | `/v1/merchants` | Enabled merchant records only (operator off switch) |
+| GET | `/v1/coupons/candidates?merchantId=<uuid>&limit=10` | Verified by 3 shoppers inside the evidence window (default 30 days); expiration filtered; rank by `successRate × expectedSavingsCents`; includes `lastConfirmedAt` |
 | GET | `/v1/coupons/preflight?merchantId=<uuid>&code=SAVE15` | Fresh safety/expiry check before a user-requested trial; no quorum required |
 | POST | `/v1/coupons/report` | Bearer shopper token; atomically creates/updates one vote per shopper and code |
 | GET | `/health` | Dependency health, `503` when unavailable |
@@ -78,6 +78,8 @@ docker compose exec coupon-service bun run --cwd services/coupon-service coupon:
   --merchant <uuid> --code <code> --operator <reviewer-id> \
   --approval approved --audience public --attribution neutral --evidence <evidence-reference>
 ```
+
+Stores are managed the same way: `bun run --cwd services/coupon-service merchant add --domain <exact host> --name <name> --operator <id>`, `merchant disable|enable --merchant <uuid> --operator <id> --reason <text>`, `merchant list`. A disabled store disappears from the extension immediately.
 
 Use `--create` to introduce a reviewed code before collecting shopper confirmations; this never creates votes. Optional `--expires-at` sets a future ISO timestamp. `--approval rejected` revokes application eligibility. Review evidence must establish public availability and neutral attribution; a working discount alone is insufficient. There is no public approval endpoint.
 

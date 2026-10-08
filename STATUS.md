@@ -1,33 +1,24 @@
 # Project checkpoint
 
-Updated October 7, 2026. **The installed Chrome extension now detects a real Amazon product coupon.** Automated checkout code trials still support the local demo only; Shopify is unfinished.
+Updated October 8, 2026, midday. **Not ready for an external beta yet, but the blockers are now narrow and named.** Codex is paused until its weekly reset; the Claude coordinating session is doing Codex's work (see [coordination](docs/COORDINATION.md)). Shareable review: [beta readiness](docs/BETA-READINESS.md).
 
-## Finished this packet
+## Finished today
 
-- Claude Code C4 completed popup, worker, manifest and build wiring. Codex integrated the shared contracts, observed Amazon reader, content script, safety fixes and tests.
-- Live Chrome: product B097S1MF28 showed **Coupon price $15.99, limit one item** inside the actual extension. **Show coupon on Amazon** focused its existing checkbox and left it unchecked. No purchase or cart change.
-- Offers are local observations, separate from community-verified codes. Product/offer changes and stale actions stop safely; selected coupons are not called confirmed savings.
-- Amazon inspection needs no running backend and stores no product snapshots. No cookie access, affiliate replacement or persistent Amazon host permission.
-- [Amazon scope and evidence](docs/AMAZON-INTEGRATION.md).
+- **Amazon:** product coupons are detected on both live layouts, including the percent-off widget that was being missed. Unrecognized coupons now say "not recognized" instead of "no coupon". The extension also reads order review: "Coupon applied at checkout", with Amazon's displayed savings and total plus "Order not placed. No commission claimed." Code trials are refused on Amazon.
+- **Shopify:** live guest-checkout observation on MVMT and Allbirds (founder-approved, no order, no personal data). Both share one Shopify checkout structure, so one shared adapter can serve many stores. The shared reader and a live onboarding check passed 8/8 on both stores. Automatic code trials stay off until an accepted code has been observed.
+- **Coupon service:** confirmations count only from the last 30 days; candidates show when a code last worked. Each store has an off switch and an operator CLI. Rate limits are proxy-safe, and Postgres can replace Redis.
+- **Hosting:** the coupon API is live as a Neon Function (`couponapi` on project `coupon-beta`), verified from outside, and the beta extension is built against it ([runbook](docs/DEPLOY-NEON.md)). The database is empty by design.
+- **Extension packaging:** dev and beta build targets, HTTPS-only beta manifest, PNG icons, friendly offline errors, and no demo UI on real stores.
 
-## Validation
+## Validation (October 8)
 
-- Frozen dependency install and all five builds passed; **88 unit tests** passed.
-- **15 Amazon reader fixture checks and 15 complete Amazon MV3 fixture checks** passed. The latter use a disposable test-only host grant; the real Chrome toolbar test separately confirmed the shipping activeTab permission.
-- **15 demo MV3 browser checks** passed, including unknown-code rejection, preserving better discounts, creator attribution and no order submission.
-- All five Docker containers are healthy as checked October 7. Prior backend integration checkpoint: **51 live API/Postgres/operator checks** passed; backend behavior was not changed by this Amazon packet.
-- Price and cashback remain explicit stubs. No affiliate revenue or payout ledger is active.
+Typecheck 5/5 workspaces. Unit tests, integration (live Postgres + HTTP), browser fixture suites and live store checks all pass; exact counts are in [the coordination log](docs/COORDINATION.md). Live Amazon walkthrough re-run on the integrated build: the 10% coupon is detected.
 
-## Next release gates
+## Remaining before a private beta
 
-The founder's target is a beta within a couple of days. The remaining work is concrete:
+1. **Founder:** choose the product name, publish a privacy policy, and create a private git remote. Today's work is committed locally (not pushed).
+2. **Shopify success path:** observe one real accepted code (the applied discount line, chip and remove control), then turn on apply, compare and restore in the shared adapter, wire it into the popup, and enable the first store.
+3. **Codes:** source reviewed public, attribution-neutral codes for the first 3–5 stores (merchant pages or merchant approval), plus invite tokens for the tester cohort.
+4. **Real Chrome:** load the beta build in Chrome and confirm the toolbar activeTab flow on Amazon product and order review.
 
-1. Amazon: observe coupon activation and verify the resulting cart discount without ordering; product detection alone is not a verified saving.
-2. Shopify: one named checkout with real eligible public codes, measured improvement and restoration tests; expand to 3–5 stores.
-3. Beta release: recent verification, shopper onboarding, HTTPS API configuration, privacy/store listing and clean installation checks.
-
-Missing live coupon sources and attribution evidence cannot be replaced with synthetic votes. Public launch is not yet ready. The demo's real API/verification loop and trust/$1 policies are implemented; price tracking and cashback follow after the extension.
-
-## Coordination
-
-Claude C4 completed successfully with no permission denials. Codex reviewed and tested its handoff. One earlier internal review hit a usage limit; Codex took over. The final reviewer completed the isolated MV3 regression checks; Codex reran and passed all 45 browser checks after integration. All work packets are complete. No recurring background job is configured. This checkpoint and the coordination log record the actual state so the next session can resume without guessing.
+Price tracking and cashback remain explicit stubs. No affiliate revenue or payout ledger is active.
