@@ -5,9 +5,14 @@ export {
 } from '@repo/shared';
 export type { TrialResult, PopupStatus, ExtensionReply as Reply } from '@repo/shared';
 
+// build.ts injects these with Bun.build `define`. Unbundled runs (bun test, tsc) get the dev values.
+declare const __BUILD_TARGET__: string | undefined;
+declare const __API_ORIGIN__: string | undefined;
+export const BUILD_TARGET: "dev" | "beta" = typeof __BUILD_TARGET__ === "string" && __BUILD_TARGET__ === "beta" ? "beta" : "dev";
+export const API_ORIGIN: string = typeof __API_ORIGIN__ === "string" ? __API_ORIGIN__ : "http://localhost:3001";
 // Chrome match patterns cannot restrict ports. Every runtime boundary does.
-export const API_ORIGIN = "http://localhost:3001";
-export const DEMO_ORIGIN = "http://localhost:4173";
+// Beta builds have no demo checkout, so the demo adapter never matches. Reading the define directly lets the bundler drop the literal.
+export const DEMO_ORIGIN: string | null = typeof __BUILD_TARGET__ === "string" && __BUILD_TARGET__ === "beta" ? null : "http://localhost:4173";
 export const unavailableCheckout = { checkout: false, busy: false, completed: false, cartKey: null, totalCents: null, appliedCode: null };
 
 export function resultMatchesCheckout(result: TrialResult, checkout: CheckoutInspection) {
@@ -15,7 +20,7 @@ export function resultMatchesCheckout(result: TrialResult, checkout: CheckoutIns
 }
 
 export function isDemoCheckout(url: string | undefined): boolean {
-  if (!url) return false;
+  if (!url || !DEMO_ORIGIN) return false;
   try { const parsed = new URL(url); return parsed.origin === DEMO_ORIGIN && parsed.pathname === "/checkout"; }
   catch { return false; }
 }

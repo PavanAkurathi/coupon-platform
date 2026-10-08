@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && bun run build.ts",
+    "build:beta": "tsc --noEmit && bun run build.ts --target beta",
+    "icons": "bun run build.ts --icons",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "demo": "bun run demo/server.ts",
