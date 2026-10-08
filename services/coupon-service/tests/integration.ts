@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import postgres from 'postgres';
 import { couponPreflightResponseSchema, type CouponSafety } from '@repo/shared';
+import { connectDatabase } from '../src/db/client';
+import { createPostgresRateLimiter } from '../src/rate-limit-postgres';
 
 const api = process.env.API_URL ?? 'http://127.0.0.1:3001';
 if (!process.env.DATABASE_URL) throw new Error('Set DATABASE_URL to the same disposable development database used by the running coupon service.');
@@ -47,6 +49,16 @@ async function reviewWithCli(approval: 'approved' | 'rejected', create = false) 
   });
   return child.exited;
 }
+async function merchantCli(...args: string[]) {
+  const child = Bun.spawn([process.execPath, resolve(import.meta.dir, '../src/scripts/merchant.ts'), ...args], {
+    env: process.env, stdin: 'ignore', stdout: 'ignore', stderr: 'ignore',
+  });
+  return child.exited;
+}
+const ageVotes = (code: string, voters: number[], days: number) => sql`
+  UPDATE coupon_reports SET updated_at = now() - make_interval(days => ${days})
+  WHERE coupon_id = (SELECT id FROM coupons WHERE merchant_id = ${merchantId} AND code = ${code})
+    AND user_id IN (SELECT id FROM users WHERE identity_hash IN ${sql(voters.map((voter) => `${prefix}-identity-${voter}`))})`;
 function expectPreflight(result: Awaited<ReturnType<typeof request>>, code: string, allowed: boolean, reason: string) {
   assert.equal(result.status, 200);
   const parsed = couponPreflightResponseSchema.parse(result.body);
@@ -201,6 +213,64 @@ try {
   check('parallel repeat reports remain one vote', () => { assert.ok(repeats.every((response) => response.status === 200)); });
   const afterRepeats = await sql`SELECT confirmations, report_count FROM coupons WHERE merchant_id = ${merchantId} AND code = 'CONCURRENT'`;
   check('repeat vote persistence remains independent', () => { assert.equal(afterRepeats[0]!.confirmations, 8); assert.equal(afterRepeats[0]!.report_count, 8); });
+
+  for (const voter of [0, 1, 2]) await report('AGING', voter, 'success', 300);
+  await approve('AGING');
+  const agingFresh = await candidates();
+  check('three recent confirmations make an approved code a candidate that publishes when it last worked', () => {
+    const row = rows(agingFresh).find((candidate: any) => candidate.code === 'AGING');
+    assert.ok(row); assert.ok(Date.now() - Date.parse(row.lastConfirmedAt) < 5 * 60_000);
+  });
+  await ageVotes('AGING', [0, 1], 31);
+  const agingStale = await candidates();
+  check('votes older than the evidence window stop counting on the next read', () => assert.ok(!rows(agingStale).some((row: any) => row.code === 'AGING')));
+  const revive = await report('AGING', 3, 'success', 300);
+  check('one new success cannot revive two stale votes', () => {
+    assert.equal(revive.status, 200); assert.equal(revive.body.confirmations, 2); assert.equal(revive.body.status, 'quarantined');
+  });
+  const afterRevive = await candidates();
+  check('a code with too few recent votes stays out of candidates', () => assert.ok(!rows(afterRevive).some((row: any) => row.code === 'AGING')));
+  await report('AGING', 4, 'success', 300);
+  const requalified = await candidates();
+  check('a fresh independent quorum restores the code with a current last-success time', () => {
+    const row = rows(requalified).find((candidate: any) => candidate.code === 'AGING');
+    assert.ok(row); assert.equal(row.confirmations, 3); assert.ok(Date.now() - Date.parse(row.lastConfirmedAt) < 5 * 60_000);
+  });
+
+  const disabledExit = await merchantCli('disable', '--merchant', merchantId, '--operator', prefix, '--reason', 'integration kill-switch test');
+  check('operator CLI disables a merchant', () => assert.equal(disabledExit, 0));
+  const listedWhileDisabled = await request('/v1/merchants');
+  const candidatesWhileDisabled = await candidates();
+  const preflightWhileDisabled = await preflight('SECOND');
+  const reportWhileDisabled = await report('SECOND', 5, 'success', 500);
+  check('a disabled merchant disappears from the supported list', () => assert.ok(!listedWhileDisabled.body.merchants.some((merchant: any) => merchant.id === merchantId)));
+  check('a disabled merchant serves no candidates, preflight or reports', () => {
+    assert.equal(candidatesWhileDisabled.status, 404); assert.equal(preflightWhileDisabled.status, 404); assert.equal(reportWhileDisabled.status, 404);
+  });
+  const enabledExit = await merchantCli('enable', '--merchant', merchantId, '--operator', prefix, '--reason', 'integration kill-switch test complete');
+  const listedAgain = await request('/v1/merchants');
+  check('re-enabling restores the merchant immediately', () => {
+    assert.equal(enabledExit, 0); assert.ok(listedAgain.body.merchants.some((merchant: any) => merchant.id === merchantId));
+  });
+  let silentDisable: unknown;
+  try { await sql`UPDATE merchants SET enabled = false, status_note = NULL WHERE id = ${merchantId}`; } catch (error) { silentDisable = error; }
+  check('database rejects a merchant disable without a recorded reason', () => {
+    assert.equal((silentDisable as any)?.code, '23514'); assert.equal((silentDisable as any)?.constraint_name, 'merchants_disable_reason');
+  });
+  const badDomainExit = await merchantCli('add', '--domain', 'https://shop.example.com/cart', '--name', 'Bad', '--operator', prefix);
+  check('operator CLI refuses a merchant domain that is not an exact hostname', () => assert.notEqual(badDomainExit, 0));
+
+  const limiterDb = connectDatabase(process.env.DATABASE_URL);
+  try {
+    const postgresLimiter = createPostgresRateLimiter(limiterDb.db);
+    const key = `${prefix}:limit`;
+    const allowed = await Promise.all(Array.from({ length: 5 }, () => postgresLimiter.allow(key, 3, 60)));
+    check('Postgres limiter admits exactly the limit under concurrent requests', () => assert.equal(allowed.filter(Boolean).length, 3));
+    await sql`UPDATE rate_limits SET window_start = now() - interval '61 seconds' WHERE key = ${`coupon:limit:${key}`}`;
+    const afterWindow = await postgresLimiter.allow(key, 3, 60);
+    check('Postgres limiter starts a fresh window after it expires', () => assert.equal(afterWindow, true));
+    await sql`DELETE FROM rate_limits WHERE key LIKE ${`coupon:limit:${prefix}%`}`;
+  } finally { await limiterDb.client.end({ timeout: 3 }); }
 
   let quorumError: unknown;
   try { await sql`INSERT INTO coupons (merchant_id, code, status, confirmations, report_count) VALUES (${merchantId}, 'ILLEGAL', 'verified', 2, 2)`; } catch (error) { quorumError = error; }

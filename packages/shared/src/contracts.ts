@@ -15,7 +15,9 @@ export const candidateSchema = z.object({
   successRate: z.number().min(0).max(1),
   expectedSavingsCents: centsSchema,
   score: z.number().nonnegative(),
+  // Successful shoppers inside the evidence window; stale votes never count.
   confirmations: z.number().int().min(3),
+  lastConfirmedAt: z.iso.datetime(),
   expiresAt: z.iso.datetime().nullable(),
   ...couponSafetySchema.shape,
 }).strict();

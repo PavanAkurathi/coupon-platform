@@ -30,8 +30,9 @@ try {
       const [coupon] = await tx.select().from(coupons).where(and(eq(coupons.merchantId, merchantId), eq(coupons.code, code))).for('update');
       if (!coupon) throw new Error('Demo coupon was not created');
       for (const userId of verifiedFixture ? demoUsers : []) {
+        // Re-running the seed refreshes fixture votes so they stay inside the evidence window.
         await tx.insert(couponReports).values({ couponId: coupon.id, userId, outcome: 'success', savingsCents })
-          .onConflictDoNothing({ target: [couponReports.couponId, couponReports.userId] });
+          .onConflictDoUpdate({ target: [couponReports.couponId, couponReports.userId], set: { outcome: 'success', savingsCents, updatedAt: new Date() } });
       }
       // Recompute rather than overwrite aggregate values when a seed is re-run.
       const [aggregate] = await tx.select({

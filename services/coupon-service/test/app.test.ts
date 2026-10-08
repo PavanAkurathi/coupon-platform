@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { unreviewedCouponSafety } from '@repo/shared';
 import { createApp } from '../src/app';
 import {
-  DomainError, eligibleCandidates, hashToken, summarizeReports,
+  DEFAULT_EVIDENCE_WINDOW_DAYS, DomainError, eligibleCandidates, evidenceSince, evidenceWindowDays, hashToken, summarizeReports,
   type CouponRow, type CouponStore, type RateLimiter,
 } from '../src/domain';
 
@@ -14,7 +14,7 @@ const limiter: RateLimiter = { allow: async () => true, ping: async () => {} };
 const makeRow = (overrides: Partial<CouponRow> = {}): CouponRow => ({
   id: crypto.randomUUID(), merchantId, code: 'SAVE10', status: 'verified',
   approvalStatus: 'approved', audience: 'public', attributionBehavior: 'neutral', reviewedAt: now, evidenceRef: 'test-fixture',
-  confirmations: 3, reportCount: 3, expectedSavingsCents: 1000, expiresAt: null, ...overrides,
+  confirmations: 3, reportCount: 3, expectedSavingsCents: 1000, lastConfirmedAt: now, expiresAt: null, ...overrides,
 });
 
 function fixture() {
@@ -82,6 +82,15 @@ describe('candidate contract and ranking', () => {
     const row = makeRow({ expiresAt: new Date(now.getTime() + 1) });
     expect(eligibleCandidates([row], now, 10)).toHaveLength(1);
     expect(eligibleCandidates([row], new Date(now.getTime() + 1), 10)).toHaveLength(0);
+  });
+  test('candidates publish when the code last worked', async () => {
+    const { app, rows } = fixture();
+    rows.push(makeRow({ code: 'RECENT', lastConfirmedAt: new Date('2026-10-02T09:30:00.000Z') }));
+    const body = await (await app.request(`/v1/coupons/candidates?merchantId=${merchantId}`)).json();
+    expect(body.candidates[0].lastConfirmedAt).toBe('2026-10-02T09:30:00.000Z');
+  });
+  test('a code without a recent confirmation never becomes a candidate', () => {
+    expect(eligibleCandidates([makeRow({ lastConfirmedAt: null })], now, 10)).toHaveLength(0);
   });
   test('unsafe high scores never displace an approved public neutral coupon', async () => {
     const { app, rows } = fixture();
@@ -204,6 +213,18 @@ describe('crowdsourced verification through HTTP', () => {
   });
 });
 
+describe('evidence window', () => {
+  test('defaults to 30 days and accepts only a sane whole number of days', () => {
+    expect(evidenceWindowDays(undefined)).toBe(DEFAULT_EVIDENCE_WINDOW_DAYS);
+    expect(DEFAULT_EVIDENCE_WINDOW_DAYS).toBe(30);
+    expect(evidenceWindowDays('14')).toBe(14);
+    for (const raw of ['0', '-3', '1.5', '366', 'thirty']) expect(() => evidenceWindowDays(raw)).toThrow();
+  });
+  test('the window starts exactly the configured number of days before now', () => {
+    expect(evidenceSince(now, 30).toISOString()).toBe('2026-09-04T12:00:00.000Z');
+  });
+});
+
 describe('availability and limits', () => {
   test('public rate limiting and dependency failure fail closed', async () => {
     const { store } = fixture();
@@ -217,6 +238,6 @@ describe('availability and limits', () => {
     const app = createApp({ store: { ...store, ping: async () => { throw new Error('DB down'); } }, limiter });
     const response = await app.request('/health');
     expect(response.status).toBe(503);
-    expect((await response.json()).dependencies).toEqual({ database: 'down', redis: 'up' });
+    expect((await response.json()).dependencies).toEqual({ database: 'down', limiter: 'up' });
   });
 });

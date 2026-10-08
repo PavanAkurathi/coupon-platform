@@ -9,7 +9,9 @@ import {
 } from '@repo/shared';
 import { DomainError, eligibleCandidates, hashToken, preflightCoupon, type CouponStore, type RateLimiter } from './domain';
 
-type Dependencies = { store: CouponStore; limiter: RateLimiter; now?: () => Date; corsOrigins?: string[] };
+// anonymousPerMinute applies per client address, or to all anonymous traffic when
+// no trusted address is available (see client-ip.ts and function.ts).
+type Dependencies = { store: CouponStore; limiter: RateLimiter; now?: () => Date; corsOrigins?: string[]; anonymousPerMinute?: number };
 type Env = { Bindings: { clientAddress?: string } };
 const fail = (code: string, message: string) => ({ error: { code, message } });
 
@@ -24,7 +26,7 @@ async function healthCheck(ping: () => Promise<void>): Promise<'up' | 'down'> {
   finally { if (timer) clearTimeout(timer); }
 }
 
-export function createApp({ store, limiter, now = () => new Date(), corsOrigins = [] }: Dependencies) {
+export function createApp({ store, limiter, now = () => new Date(), corsOrigins = [], anonymousPerMinute = 120 }: Dependencies) {
   const app = new Hono<Env>();
   app.use('*', secureHeaders());
   app.use('/v1/*', cors({
@@ -37,7 +39,7 @@ export function createApp({ store, limiter, now = () => new Date(), corsOrigins 
     c.header('Cache-Control', 'no-store');
     // Use the socket address supplied by Bun; never trust client-forwarded headers.
     const ip = c.env?.clientAddress ?? 'unknown';
-    if (!await limiter.allow(`ip:${hashToken(ip)}`, 120, 60)) {
+    if (!await limiter.allow(`ip:${hashToken(ip)}`, anonymousPerMinute, 60)) {
       c.header('Retry-After', '60');
       return c.json(fail('RATE_LIMITED', 'Please try again in a minute.'), 429);
     }
@@ -48,10 +50,10 @@ export function createApp({ store, limiter, now = () => new Date(), corsOrigins 
     onError: (c) => c.json(fail('BODY_TOO_LARGE', 'Report payload is too large.'), 413),
   }));
   app.get('/health', async (c) => {
-    const [database, redis] = await Promise.all([healthCheck(() => store.ping()), healthCheck(() => limiter.ping())]);
-    const healthy = database === 'up' && redis === 'up';
+    const [database, limiterStatus] = await Promise.all([healthCheck(() => store.ping()), healthCheck(() => limiter.ping())]);
+    const healthy = database === 'up' && limiterStatus === 'up';
     return c.json(healthResponseSchema.parse({
-      service: 'coupon-service', status: healthy ? 'ok' : 'degraded', dependencies: { database, redis },
+      service: 'coupon-service', status: healthy ? 'ok' : 'degraded', dependencies: { database, limiter: limiterStatus },
     }), healthy ? 200 : 503);
   });
   app.get('/v1/merchants', async (c) => c.json(merchantsResponseSchema.parse({ merchants: await store.listMerchants() })));

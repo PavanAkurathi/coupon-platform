@@ -12,6 +12,7 @@ const SAFE: Candidate = {
   expectedSavingsCents: 1500,
   score: 10,
   confirmations: 5,
+  lastConfirmedAt: '2026-10-06T12:00:00.000Z',
   expiresAt: null,
   approvalStatus: 'approved',
   audience: 'public',

@@ -15,6 +15,20 @@
       "when": 1791233396666,
       "tag": "0001_silent_paibok",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791466551968,
+      "tag": "0002_merchant_controls",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791468062929,
+      "tag": "0003_rate_limits",
+      "breakpoints": true
     }
   ]
 }

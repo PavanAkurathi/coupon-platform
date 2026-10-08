@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { canAutoApplyCoupon, couponSafetyReason, unreviewedCouponSafety, type CouponSafety, type CouponReport, type CouponReportResponse, type Merchant } from '@repo/shared';
 export type { CouponReport, Merchant } from '@repo/shared';
 export type CouponRow = Omit<CouponSafety, 'reviewedAt'> & {
@@ -6,9 +7,11 @@ export type CouponRow = Omit<CouponSafety, 'reviewedAt'> & {
   merchantId: string;
   code: string;
   status: 'quarantined' | 'verified';
+  // Aggregates over the evidence window only. lastConfirmedAt is the newest success in it.
   confirmations: number;
   reportCount: number;
   expectedSavingsCents: number;
+  lastConfirmedAt: Date | null;
   expiresAt: Date | null;
 };
 export type ReportResult = CouponReportResponse;
@@ -28,6 +31,7 @@ export function toCandidate(coupon: CouponRow) {
     expectedSavingsCents: coupon.expectedSavingsCents,
     score: successRate * coupon.expectedSavingsCents,
     confirmations: coupon.confirmations,
+    lastConfirmedAt: coupon.lastConfirmedAt!.toISOString(),
     expiresAt: coupon.expiresAt?.toISOString() ?? null,
     ...toSafety(coupon),
   };
@@ -50,7 +54,7 @@ export function preflightCoupon(merchantId: string, code: string, coupon: Coupon
 // Also used after the SQL filter: a response never contains an expired or quarantined code.
 export function eligibleCandidates(rows: CouponRow[], now: Date, limit: number) {
   return rows.filter((coupon) => canAutoApplyCoupon(toSafety(coupon)) && coupon.status === 'verified' && coupon.confirmations >= 3
-    && (!coupon.expiresAt || coupon.expiresAt.getTime() > now.getTime()))
+    && coupon.lastConfirmedAt !== null && (!coupon.expiresAt || coupon.expiresAt.getTime() > now.getTime()))
     .map(toCandidate)
     .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
     .slice(0, limit);
@@ -67,7 +71,21 @@ export function summarizeReports(reports: { outcome: 'success' | 'failure'; savi
   };
 }
 
+// Shopper confirmations count toward verification only while they are recent.
+// Votes older than the window age out at read time; a new success cannot revive them.
+export const DEFAULT_EVIDENCE_WINDOW_DAYS = 30;
+export function evidenceWindowDays(raw = process.env.EVIDENCE_WINDOW_DAYS): number {
+  if (raw === undefined || raw.trim() === '') return DEFAULT_EVIDENCE_WINDOW_DAYS;
+  const days = Number(raw);
+  if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error('EVIDENCE_WINDOW_DAYS must be a whole number from 1 to 365.');
+  return days;
+}
+export function evidenceSince(now: Date, windowDays: number): Date {
+  return new Date(now.getTime() - windowDays * 24 * 60 * 60 * 1000);
+}
+
 export interface CouponStore {
+  // Enabled merchants only. A disabled merchant is unsupported everywhere at once.
   listMerchants(): Promise<Merchant[]>;
   hasMerchant(id: string): Promise<boolean>;
   findCandidates(merchantId: string, limit: number, now: Date): Promise<CouponRow[]>;
@@ -82,4 +100,5 @@ export interface RateLimiter {
   ping(): Promise<void>;
 }
 
-export const hashToken = (token: string) => new Bun.CryptoHasher('sha256').update(token).digest('hex');
+// node:crypto keeps the service portable between Bun (local, Docker) and Node (Neon Functions).
+export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
