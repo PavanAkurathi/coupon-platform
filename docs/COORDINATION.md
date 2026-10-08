@@ -153,3 +153,14 @@ The founder asked the Claude coordinating session to continue Codex's work while
 - **Tooling:** turbo `agentGuidance: false` (turbo kept injecting a block into `AGENTS.md`), and turbo `build.env` includes `COUPON_API_ORIGIN`.
 - **Validation:** tsc 5/5, unit tests and integration as listed in STATUS.md, plus browser suites 15 demo + 27 Amazon reader + 24 Amazon checkout + 19 Amazon MV3 + 17 Shopify reader, plus Shopify live 16/16 and a live Amazon re-walk (the percent coupon is now detected).
 - **For Codex review:** the `lastConfirmedAt` contract change; Postgres limiter cost under load (put an edge limiter in front before public launch); C5's 60 s checkout freshness.
+
+## October 8 afternoon: Shopify success path (coordinator)
+
+The founder supplied codes in chat. They were used for observation only and are aggregator-looking, so their attribution is unknown and they stay out of the database; `AFF-FIRST15` was skipped. On Allbirds, WELCOME10 was accepted and its structure recorded ([evidence](SHOPIFY-CHECKOUT-EVIDENCE.md)). SAVE16, and MVMT's WKND30 and SUM25, were rejected.
+
+- **Reader:** skips heading-only rows ("Order discount") and reports `appliedCodes` from "Remove <CODE>" buttons. This adds a required `appliedCodes` field to the contract, plus `shopifyContentRequestSchema`.
+- **Adapter:** `src/shopify-adapter.ts`: apply, measure the payable total, remove, re-apply the best and verify. Existing codes are never removed; a changed cart is never mutated further.
+- **Extension:** `shopify-content.ts` (new build entry). The worker calls `/v1/merchants` only on Shopify-shaped checkout URLs and matches the exact host. The gate gained an injectable `supports` hook. A keepalive call covers long runs. The popup gets an estimate note and an existing-code message, and trials are disabled while a code is applied.
+- **Tests (fresh copy of the tree):** typecheck 5/5 and 109 unit tests. Browser checks: 15 demo, 27 Amazon reader, 15 Amazon checkout reader, 9 Amazon checkout MV3, 19 Amazon MV3, 17 Shopify reader, 9 Shopify adapter (including a late field reset and a slow valid code after a rejection), 10 Shopify MV3. Live: adapter 13/13 on Allbirds, plus the real extension end to end on Allbirds.
+- **Integration note:** the coordinator ran `bun run build` in `apps/extension` once by mistake, which rewrote the founder's installed `dist`. That build was later confirmed byte-identical to the final verified build. Chrome picks it up on the next extension reload.
+- **Not done:** enabling Allbirds in the beta database, and reviewed public codes with source evidence. Both are founder/operator decisions.

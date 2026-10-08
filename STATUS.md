@@ -5,7 +5,7 @@ Updated October 8, 2026, midday. **Not ready for an external beta yet, but the b
 ## Finished today
 
 - **Amazon:** product coupons are detected on both live layouts, including the percent-off widget that was being missed. Unrecognized coupons now say "not recognized" instead of "no coupon". The extension also reads order review: "Coupon applied at checkout", with Amazon's displayed savings and total plus "Order not placed. No commission claimed." Code trials are refused on Amazon.
-- **Shopify:** live guest-checkout observation on MVMT and Allbirds (founder-approved, no order, no personal data). Both share one Shopify checkout structure, so one shared adapter can serve many stores. The shared reader and a live onboarding check passed 8/8 on both stores. Automatic code trials stay off until an accepted code has been observed.
+- **Shopify:** one shared adapter for Shopify's checkout, proven live on Allbirds. The real extension tried two codes, kept the one that worked and showed "$2.81 saved, WELCOME10 applied", with no order and no personal data. A store goes live once an operator enables its exact host and adds reviewed codes; the onboarding check verifies each store first.
 - **Coupon service:** confirmations count only from the last 30 days; candidates show when a code last worked. Each store has an off switch and an operator CLI. Rate limits are proxy-safe, and Postgres can replace Redis.
 - **Hosting:** the coupon API is live as a Neon Function (`couponapi` on project `coupon-beta`), verified from outside, and the beta extension is built against it ([runbook](docs/DEPLOY-NEON.md)). The database is empty by design.
 - **Extension packaging:** dev and beta build targets, HTTPS-only beta manifest, PNG icons, friendly offline errors, and no demo UI on real stores.
@@ -17,7 +17,7 @@ Typecheck 5/5 workspaces. Unit tests, integration (live Postgres + HTTP), browse
 ## Remaining before a private beta
 
 1. **Founder:** choose the product name, publish a privacy policy, and create a private git remote. Today's work is committed locally (not pushed).
-2. **Shopify success path:** observe one real accepted code (the applied discount line, chip and remove control), then turn on apply, compare and restore in the shared adapter, wire it into the popup, and enable the first store.
+2. **First store live:** enable Allbirds (or another store) in the beta database with `merchant add`, after reviewing at least one public, attribution-neutral code with source evidence (`coupon:review`).
 3. **Codes:** source reviewed public, attribution-neutral codes for the first 3–5 stores (merchant pages or merchant approval), plus invite tokens for the tester cohort.
 4. **Real Chrome:** load the beta build in Chrome and confirm the toolbar activeTab flow on Amazon product and order review.
 
