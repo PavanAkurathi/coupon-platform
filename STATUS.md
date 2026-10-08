@@ -14,6 +14,11 @@ Updated October 8, 2026, midday. **Not ready for an external beta yet, but the b
 
 Typecheck 5/5 workspaces. Unit tests, integration (live Postgres + HTTP), browser fixture suites and live store checks all pass; exact counts are in [the coordination log](docs/COORDINATION.md). Live Amazon walkthrough re-run on the integrated build: the 10% coupon is detected.
 
+## Tester builds
+
+- `outputs/coupon-extension.zip` is the October 7 build ("Coupon extension" 0.1.0, localhost only). It is superseded; don't share it.
+- `outputs/checkout-savings-beta-0.2.0.zip` is today's beta ("Checkout Savings" 0.2.0), built against the live Neon service. It was checked unzipped in a fresh browser. Amazon product coupons and order review work for anyone. Shopify stays inactive until a store is enabled with reviewed codes.
+
 ## Remaining before a private beta
 
 1. **Founder:** choose the product name, publish a privacy policy, and create a private git remote. Today's work is committed locally (not pushed).
