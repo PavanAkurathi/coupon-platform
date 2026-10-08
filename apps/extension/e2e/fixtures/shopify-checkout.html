@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Shopify checkout fixture</title></head><body>
+<!-- Synthetic regression fixture using only the roles and attributes observed on MVMT and
+     Allbirds on Oct 8 (docs/SHOPIFY-CHECKOUT-EVIDENCE.md). Placeholder contact fields and
+     item text are invented. No shopper data, checkout tokens or real orders. -->
+<main>
+  <section id="contact"><label>Email <input id="email" name="email" type="email" autocomplete="email"></label>
+    <label><input id="marketing" type="checkbox" checked> Email me with news and offers</label></section>
+  <form id="pay-form" action="#"><button id="checkout-pay-button" type="submit" aria-label="Pay now">Pay now</button></form>
+</main>
+<aside>
+  <div role="table"><div role="rowgroup"><div role="row" id="item-row"><div role="cell">Fixture flip flop</div><div role="cell">$25.00</div></div></div></div>
+  <div id="mobile-summary" style="display:none"><button type="button">Add discount</button>
+    <form><input id="ReductionsInput-hidden" name="reductions" type="text" placeholder="Discount code"><button type="submit" aria-label="Apply Discount Code">Apply</button></form></div>
+  <form id="discount-form">
+    <label for="ReductionsInput-1">Discount code or gift card</label>
+    <input id="ReductionsInput-1" name="reductions" type="text" autocomplete="on" placeholder="Discount code or gift card">
+    <button type="submit" aria-label="Apply Discount Code">Apply</button>
+    <div id="error-for-ReductionsInput-1"></div>
+  </form>
+  <div class="error-template" style="display:none">There was a problem with our checkout. Refresh this page.</div>
+  <section>
+    <h2 id="MoneyLine-Heading1">Cost summary</h2>
+    <div role="table" aria-labelledby="MoneyLine-Heading1" id="money-lines">
+      <div role="rowgroup">
+        <div role="row" id="column-headers"><div role="columnheader">Item</div><div role="columnheader">Value</div></div>
+        <div role="row" id="subtotal-row"><div role="rowheader"><span>Subtotal · 1 item</span></div><div role="cell">$25.00</div></div>
+        <div role="row" id="shipping-row"><div role="rowheader"><span>Shipping</span></div><div role="cell">Enter shipping address</div></div>
+        <div role="row" id="tax-row"><div role="rowheader"><span>Estimated taxes</span><p>The final tax and total will be confirmed by email or text after you place your order.</p></div><div role="cell">$0.19</div></div>
+        <div role="row" id="total-row"><div role="rowheader"><strong>Total</strong></div><div role="cell">USD $25.19</div></div>
+      </div>
+    </div>
+    <div role="table" aria-labelledby="MoneyLine-Heading1" style="display:none">
+      <div role="row"><div role="rowheader">Subtotal</div><div role="cell">$1.00</div></div>
+      <div role="row"><div role="rowheader">Total</div><div role="cell">USD $1.00</div></div>
+    </div>
+  </section>
+</aside>
+</body></html>
