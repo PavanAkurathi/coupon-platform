@@ -1,4 +1,4 @@
-import { formatMoney, popupStatusSchema, trialResponseSchema, type PopupStatus, type Reply, type TrialResult } from "./protocol";
+import { DEMO_ORIGIN, formatMoney, popupStatusSchema, trialResponseSchema, type PopupStatus, type Reply, type TrialResult } from "./protocol";
 import { confirmedEarningsLine } from "@repo/shared";
 
 function el<T extends HTMLElement>(id: string): T { const node = document.getElementById(id); if (!node) throw new Error(`Missing ${id}`); return node as T; }
@@ -13,6 +13,16 @@ async function request<T>(message: unknown): Promise<T> {
   return reply.data;
 }
 function status(message: string, error = false) { statusLine.textContent = message; statusLine.classList.toggle("error", error); }
+// Demo affordances exist only in dev builds (DEMO_ORIGIN is null in beta), and only on a localhost page.
+const demoLink = el<HTMLAnchorElement>("demo-link");
+if (DEMO_ORIGIN) demoLink.href = `${DEMO_ORIGIN}/checkout`;
+async function onLocalDemoHost(): Promise<boolean> {
+  if (!DEMO_ORIGIN) return false;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tab?.url ? new URL(tab.url).hostname === new URL(DEMO_ORIGIN).hostname : false;
+  } catch { return false; }
+}
 function controls() {
   const unavailable = busy || !state?.supported || !state.checkout || state.completed || state.busy;
   primary.disabled = Boolean(unavailable); testCode.disabled = Boolean(unavailable || !state?.hasToken);
@@ -36,8 +46,70 @@ function showResult(result: TrialResult, completed = false) {
 }
 
 type AmazonInspection = NonNullable<PopupStatus["amazon"]>;
+type AmazonCheckoutInspection = NonNullable<PopupStatus["amazonCheckout"]>;
+
+function clearCheckoutAmounts() {
+  el("checkout-summary").hidden = true;
+  el("checkout-savings-row").hidden = true;
+  el("checkout-total-row").hidden = true;
+  el("checkout-savings").textContent = "";
+  el("checkout-total").textContent = "";
+}
+function hideCheckoutMode() {
+  el("amazon-checkout-panel").hidden = true;
+  clearCheckoutAmounts();
+}
+// Any state without a fresh, readable summary shows no amounts at all.
+function checkoutWithoutAmounts(headline: string, message: string, error = false) {
+  clearCheckoutAmounts();
+  el("headline").textContent = headline;
+  el("description").textContent = "No amounts are shown until Amazon's order summary can be read.";
+  el("description").hidden = false;
+  status(message, error);
+}
+
+// Amazon's own order summary, read-only. Not a placed order, earned commission
+// or proof that this extension found the coupon.
+function renderCheckoutMode(inspection: AmazonCheckoutInspection) {
+  el("amazon-panel").hidden = true;
+  el<HTMLButtonElement>("amazon-show").disabled = true;
+  el("amazon-checkout-panel").hidden = false;
+  el("try-codes").hidden = true;
+  el("trust-row").hidden = true;
+  el("demo-link").hidden = true;
+  el("result").hidden = true;
+  el("receipt").hidden = true;
+  el("code-section").hidden = true;
+  el("token-section").hidden = true;
+  primary.disabled = true; testCode.disabled = true;
+  el("env-pill").textContent = "AMAZON";
+  el("env-pill").hidden = false;
+  el("store").textContent = "Amazon · checkout review";
+
+  const { couponSavingsCents: savings, orderTotalCents: total } = inspection;
+  if (inspection.status !== "review_ready" || savings === null || total === null) {
+    checkoutWithoutAmounts("Check your order summary.", inspection.reason || "Could not read the Amazon order summary.");
+    return;
+  }
+  clearCheckoutAmounts();
+  el("checkout-summary").hidden = false;
+  el("checkout-total").textContent = formatMoney(total);
+  el("checkout-total-row").hidden = false;
+  if (savings > 0) {
+    el("checkout-savings").textContent = formatMoney(savings);
+    el("checkout-savings-row").hidden = false;
+  }
+  el("headline").textContent = savings > 0 ? "Coupon applied at checkout." : "No coupon discount shown.";
+  el("description").textContent = savings > 0
+    ? "Read from Amazon's order summary. Review it there before you place your order."
+    : "Amazon's order summary doesn't list a coupon discount for this order.";
+  el("description").hidden = false;
+  const checkedAt = new Date(inspection.observedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  status(`Checked at ${checkedAt}. Totals can change before you order.`);
+}
 
 function renderAmazonMode(inspection: AmazonInspection) {
+  hideCheckoutMode();
   el("amazon-panel").hidden = false;
   el("try-codes").hidden = true;
   el("trust-row").hidden = true;
@@ -47,8 +119,9 @@ function renderAmazonMode(inspection: AmazonInspection) {
   el("code-section").hidden = true;
   el("token-section").hidden = true;
   el("env-pill").textContent = "AMAZON";
+  el("env-pill").hidden = false;
 
-  el("store").textContent = "Amazon · product page";
+  el("store").textContent = inspection.asin ? "Amazon · product page" : "Amazon";
 
   const titleEl = el("amazon-product");
   titleEl.textContent = inspection.productTitle || "";
@@ -127,13 +200,16 @@ function renderAmazonMode(inspection: AmazonInspection) {
   }
 }
 
-function hideAmazonMode() {
+function hideAmazonMode(supported: boolean) {
+  hideCheckoutMode();
   el("amazon-panel").hidden = true;
-  el("try-codes").hidden = false;
-  el("trust-row").hidden = false;
-  el("code-section").hidden = false;
+  // Trial controls and their verification claims only appear on a supported checkout.
+  el("try-codes").hidden = !supported;
+  el("trust-row").hidden = !supported;
+  el("code-section").hidden = !supported;
   el("token-section").hidden = false;
   el("env-pill").textContent = "LOCAL DEMO";
+  el("env-pill").hidden = !supported || !DEMO_ORIGIN;
   el("headline").replaceChildren(document.createTextNode("Good codes."), document.createElement("br"), document.createTextNode("Better totals."));
   el("description").textContent = "A few careful checks. Every dollar saved stays yours.";
   el("description").hidden = false;
@@ -142,18 +218,27 @@ function hideAmazonMode() {
 async function refresh() {
   state = popupStatusSchema.parse(await request({ type: "status" }));
 
+  if (state.amazonCheckout !== undefined) {
+    renderCheckoutMode(state.amazonCheckout);
+    return;
+  }
   if (state.amazon !== undefined) {
     renderAmazonMode(state.amazon);
     return;
   }
 
-  hideAmazonMode();
+  hideAmazonMode(state.supported);
+  const localDemo = !state.supported && await onLocalDemoHost();
   el("store").textContent = state.merchantName ? `${state.merchantName} · checkout` : "A little help at checkout";
-  el("demo-link").hidden = state.supported;
+  demoLink.hidden = !localDemo;
   el("token-note").textContent = state.hasToken ? "Shopper token saved. Your reports count once per code. Leave blank and save to remove it." : "Add an issued shopper token to help verify codes. Leave blank and save to remove it.";
   if (!state.result) clearResult();
   if (state.result) { showResult(state.result, state.completed); status(state.reportNote ?? "Your best code is ready."); }
-  else if (!state.supported) status("Try the local demo checkout or open an Amazon product page.");
+  else if (!state.supported) {
+    el("headline").textContent = "Not supported here yet.";
+    el("description").textContent = "This page isn't a supported store or checkout.";
+    status(localDemo ? "Try the local demo checkout or open an Amazon product page." : "Open an Amazon.com product page or order review to check coupons.");
+  }
   else if (!state.checkout) status("Refresh the checkout page to connect the extension.");
   else if (state.completed) status("This demo order is complete. Start a new cart to test codes.");
   else if (state.busy) status("Testing is running. You can reopen this popup when it finishes.");
@@ -201,4 +286,17 @@ el<HTMLButtonElement>("amazon-refresh").addEventListener("click", async () => {
   catch (error) { status(error instanceof Error ? error.message : "Could not reload.", true); }
   finally { button.disabled = false; }
 });
-void refresh().catch((error: unknown) => { status(error instanceof Error ? error.message : "Could not connect to the coupon service.", true); el("demo-link").hidden = false; });
+el<HTMLButtonElement>("checkout-refresh").addEventListener("click", async () => {
+  const button = el<HTMLButtonElement>("checkout-refresh");
+  if (button.disabled) return;
+  // Previous amounts are withdrawn until a fresh reading replaces them.
+  button.disabled = true;
+  checkoutWithoutAmounts("Checking totals.", "Reading Amazon's order summary…");
+  try { await refresh(); }
+  catch (error) { checkoutWithoutAmounts("Check your order summary.", error instanceof Error ? error.message : "Could not read the order summary.", true); }
+  finally { button.disabled = false; }
+});
+void refresh().catch(async (error: unknown) => {
+  status(error instanceof Error ? error.message : "Could not connect to the coupon service.", true);
+  demoLink.hidden = !await onLocalDemoHost();
+});

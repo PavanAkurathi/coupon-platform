@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Amazon checkout fixture</title></head><body>
+<!-- Synthetic regression fixture using only the order-summary structure observed on Oct 8
+     (docs/AMAZON-CHECKOUT-EVIDENCE.md). The address and item text are invented placeholders.
+     No shopper information, copied payloads, checkout identifiers, authentication or real orders. -->
+<section id="fixture-address">Ship to Fixture Shopper, 1 Placeholder Way, Testville</section>
+<section id="fixture-items">Fixture face wipes, 15 count · Qty 1</section>
+<form id="order" action="#">
+  <input id="placeOrder" name="placeYourOrder1" type="submit" value="Place your order" style="display:none">
+  <div id="subtotals-marketplace-table">
+    <div class="order-summary-grid"><span class="order-summary-line-term">Items:</span><span class="order-summary-line-definition">$19.99</span></div>
+    <div class="order-summary-grid"><span class="order-summary-line-term">Shipping &amp; handling:</span><span class="order-summary-line-definition">$0.00</span></div>
+    <div class="order-summary-grid" id="coupon-row"><span class="order-summary-line-term">Your Coupon Savings:</span><span class="order-summary-line-definition">-$2.00</span></div>
+    <div class="order-summary-grid"><span class="order-summary-line-term">Total before tax:</span><span class="order-summary-line-definition">$17.99</span></div>
+    <div class="order-summary-grid"><span class="order-summary-line-term">Estimated tax to be collected:</span><span class="order-summary-line-definition">$1.12</span></div>
+    <div class="order-summary-grid" id="total-row"><span class="order-summary-line-term">Order total:</span><span class="order-summary-line-definition">$19.11</span></div>
+  </div>
+  <div id="subtotals-marketplace-table" style="display:none">
+    <div class="order-summary-grid"><span class="order-summary-line-term">Your Coupon Savings:</span><span class="order-summary-line-definition">-$9.00</span></div>
+    <div class="order-summary-grid"><span class="order-summary-line-term">Order total:</span><span class="order-summary-line-definition">$1.00</span></div>
+  </div>
+  <input id="placeOrder" name="placeYourOrder1" type="submit" value="Place your order" class="visible-place-order">
+</form>
+</body></html>

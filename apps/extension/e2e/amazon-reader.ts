@@ -5,6 +5,8 @@ import { amazonInspectionSchema } from '@repo/shared';
 // Every request in this isolated browser is intercepted. No live Amazon access,
 // shopper profile, cookies, backend or purchase is used by this fixture suite.
 const fixture = await Bun.file(`${import.meta.dir}/fixtures/amazon-product.html`).text();
+const percentFixture = await Bun.file(`${import.meta.dir}/fixtures/amazon-product-percent.html`).text();
+let served = fixture;
 const build = await Bun.build({entrypoints:[`${import.meta.dir}/../src/amazon-reader.ts`], target:'browser', format:'esm'});
 if (!build.success) throw new AggregateError(build.logs, 'Reader test bundle failed');
 const source = await build.outputs[0]!.text();
@@ -13,11 +15,12 @@ const browser = await chromium.launch({headless:true,
 });
 const context = await browser.newContext();
 await context.route('**/*', async route => route.request().isNavigationRequest()
-  ? route.fulfill({status:200, contentType:'text/html', body:fixture}) : route.abort());
+  ? route.fulfill({status:200, contentType:'text/html', body:served}) : route.abort());
 const page = await context.newPage();
 let checks = 0;
 const check = (label: string, action: () => void) => { action(); checks++; console.log(`PASS ${label}`); };
-async function reset(url = 'https://www.amazon.com/dp/B097S1MF28?tag=creator-fixture') {
+async function reset(url = 'https://www.amazon.com/dp/B097S1MF28?tag=creator-fixture', html = fixture) {
+  served = html;
   await page.goto(url);
   await page.evaluate(async (source) => {
     const globals = window as any;
@@ -106,5 +109,87 @@ try {
   await reset('https://www.amazon.com.evil.test/dp/B097S1MF28');
   const lookalike = await inspect();
   check('lookalike domains are rejected even with matching HTML',()=>assert.equal(lookalike.status,'unavailable'));
+  await reset();
+  await page.locator('#promoPriceBlockMessage_feature_div .ct-coupon-tile').first().evaluate(el=>el.classList.remove('ct-coupon-tile'));
+  const unknownTile = await inspect();
+  check('visible coupon text in an unknown tile layout is unavailable, never no_offer',()=>{
+    assert.equal(unknownTile.status,'unavailable'); assert.match(unknownTile.reason,/not recognized/);
+  });
+
+  // Second layout observed Oct 8: "Coupon:" badge + "Apply 10% coupon" checkbox.
+  const percentUrl = 'https://www.amazon.com/dp/B097S1MF28?tag=creator-fixture';
+  const row = '#reinvent_price_desktop_newAccordionRow';
+  const percentState = () => page.evaluate(row => {
+    const active = document.activeElement as HTMLInputElement | null;
+    return {clicks:(window as any).__clicks, submits:(window as any).__submits, url:location.href,
+      inRow:Boolean(active?.matches(`${row} input[type="checkbox"]`)), checked:active?.checked ?? null};
+  }, row);
+  await reset(percentUrl, percentFixture);
+  const percent = amazonInspectionSchema.parse(await inspect());
+  check('percent coupon layout returns one offer without a price, ignoring ads and hidden duplicates', () => {
+    assert.equal(percent.status,'offers_found'); assert.equal(percent.offers.length,1);
+    assert.equal(percent.offers[0]!.label,'Apply 10% coupon'); assert.equal(percent.offers[0]!.advertisedPriceCents,null);
+    assert.equal(percent.offers[0]!.state,'available'); assert.equal(percent.offers[0]!.purchaseRequirement,'unknown');
+  });
+  const percentFocus = await focus(requestFor(percent)); const percentFocused = await percentState();
+  check('percent show-coupon only focuses the visible paired checkbox', () => {
+    assert.equal(percentFocus.ok,true); assert.equal(percentFocused.inRow,true); assert.equal(percentFocused.checked,false);
+    assert.equal(percentFocused.clicks,0); assert.equal(percentFocused.submits,0); assert.equal(percentFocused.url,percentUrl);
+  });
+  await page.locator(`${row} input[type="checkbox"]`).evaluate((el: HTMLInputElement)=>{el.checked=true;});
+  const percentChecked = await inspect(); const checkedFocus = await focus(requestFor(percentChecked));
+  check('checked percent coupon is selected and cannot be activated', () => {
+    assert.equal(percentChecked.offers[0].state,'already_selected'); assert.equal(checkedFocus.ok,false);
+  });
+  await reset(percentUrl, percentFixture);
+  await page.evaluate(row => {
+    document.querySelector(`${row} [id^="donepctch"]`)!.classList.remove('aok-hidden');
+    document.querySelector(`${row} [id^="couponTextpctch"]`)!.classList.add('aok-hidden');
+    document.querySelector(`${row} [id^="cbpctch"]`)!.classList.add('aok-hidden');
+  }, row);
+  const applied = amazonInspectionSchema.parse(await inspect());
+  check('Amazon "coupon applied" text is reported as selected, not confirmed savings', () => {
+    assert.equal(applied.status,'offers_found'); assert.equal(applied.offers[0]!.state,'already_selected');
+    assert.equal(applied.offers[0]!.label,'10% off coupon'); assert.doesNotMatch(JSON.stringify(applied),/applied|savings/i);
+  });
+  await reset(percentUrl, percentFixture);
+  await page.locator(`${row} input[type="checkbox"]`).evaluate((el: HTMLInputElement)=>{el.disabled=true;});
+  const percentDisabled = await inspect();
+  check('disabled percent coupon is not actionable',()=>assert.equal(percentDisabled.offers[0].state,'unavailable'));
+  await reset(percentUrl, percentFixture);
+  await page.evaluate(row => {
+    (document.querySelector(row) as HTMLElement).style.display='none';
+    (document.querySelector('#reinvent_price_desktop_snsAccordionRowMiddle') as HTMLElement).style.display='';
+  }, row);
+  const subscription = await inspect();
+  check('Subscribe & Save coupon row is labelled as a subscription requirement', () => {
+    assert.equal(subscription.offers.length,1); assert.equal(subscription.offers[0].purchaseRequirement,'subscription');
+    assert.equal(subscription.offers[0].label,'Save an extra 10% on your first Subscribe and Save order.');
+  });
+  const mismatches: Record<string, string> = {
+    'label for': `${row} label`, 'coupon text id': `${row} [id^="couponTextpctch"]`, 'badge id': `${row} [id^="badgepctch"]`,
+  };
+  for (const [part, selector] of Object.entries(mismatches)) {
+    await reset(percentUrl, percentFixture);
+    await page.locator(selector).evaluate((el, part) => part === 'label for'
+      ? el.setAttribute('for','checkboxpctch1000000000000002') : el.id = el.id.replace('0001','0002'), part);
+    const mismatched = await inspect();
+    check(`mismatched percent coupon ${part} fails closed as unavailable`,()=>{
+      assert.equal(mismatched.status,'unavailable'); assert.equal(mismatched.offers.length,0);
+    });
+  }
+  await reset(percentUrl, percentFixture);
+  await page.locator(`${row} .promoPriceBlockMessage`).evaluate(el => {
+    el.innerHTML = '<span class="couponWidgetNext"><b>Coupon:</b> <input id="next" type="checkbox"><label for="next">Save 15% with coupon</label></span>';
+  });
+  const unknownPercent = await inspect();
+  check('unrecognized visible coupon markup is unavailable, never no_offer', () => {
+    assert.equal(unknownPercent.status,'unavailable'); assert.match(unknownPercent.reason,/not recognized/);
+    assert.equal(unknownPercent.offers.length,0);
+  });
+  await reset(percentUrl, percentFixture);
+  await page.locator(`${row} [id^="couponTextpctch"]`).evaluate(el => {el.firstChild!.textContent=' Apply coupon ';});
+  const noAmount = await inspect();
+  check('percent coupon without a readable amount fails closed',()=>assert.equal(noAmount.status,'unavailable'));
   console.log(`Amazon reader: ${checks} fixture browser checks passed. No live shopping traffic.`);
 } finally { await context.close(); await browser.close(); }

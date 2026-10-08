@@ -6,7 +6,9 @@ October 7, 2026 — implemented and tested in the founder's installed Chrome ext
 
 Opening the popup on an exact `https://www.amazon.com` product route injects an isolated reader through `activeTab` + `scripting`. It identifies the current product, reads visible native coupon tiles, displays advertised coupon prices and terms, and offers **Show coupon on Amazon**. That action only scrolls and focuses the matching control; it never clicks or selects it.
 
-The reader uses the observed `#promoPriceBlockMessage_feature_div`, `.ct-coupon-tile`, labelled checkbox, `.a-price`, `#title #productTitle` and ASIN inputs. Hidden mobile duplicates, ads and unrelated Prime/subscription prices are excluded. Missing identity, ambiguous controls and changing products return an unavailable state. Other Amazon layouts are not yet established as supported.
+The reader uses the observed `#promoPriceBlockMessage_feature_div`, `.ct-coupon-tile`, labelled checkbox, `.a-price`, `#title #productTitle` and ASIN inputs. Hidden mobile duplicates, ads and unrelated Prime/subscription prices are excluded. Missing identity, ambiguous controls and changing products return an unavailable state.
+
+October 8: a second layout is supported. Amazon also serves an `i.newCouponBadge` row with `input#checkboxpctch<id>`, `label[for]` and `#couponTextpctch<id>` (for example "Apply 10% coupon"), reported with Amazon's own label and no advertised price. A visible coupon in an unrecognized layout is reported as unavailable ("layout is not recognized"), never as no coupon. Order review: `amazon-checkout-reader.ts` reads Amazon's displayed coupon savings and order total ([evidence](AMAZON-CHECKOUT-EVIDENCE.md)) and the popup shows them with "Order not placed. No commission claimed."
 
 Observations stay local and ephemeral. There are no coupon API calls, saved Amazon snapshots, cookie access, tracking changes or persistent Amazon host permissions. Native offers never enter the community verification/reporting loop or the code-trial adapter registry. A selected checkbox is described as selected, never as a verified discount.
 

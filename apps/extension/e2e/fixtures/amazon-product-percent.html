@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Amazon percent coupon fixture</title>
+<style>
+  /* Stand-ins for the observed Amazon styles that decide what is visible. */
+  .aok-hidden { display:none; }
+  .a-checkbox label { display:block; position:relative; width:28px; height:24px; }
+  .a-checkbox input { position:absolute; opacity:0; width:16px; height:16px; margin:0; }
+  .a-icon-checkbox { display:inline-block; width:16px; height:16px; border:1px solid #888; }
+  .newCouponBadge { font-style:normal; font-weight:bold; background:#f90; }
+</style></head><body>
+<!-- Synthetic regression fixture using only the second coupon layout observed on
+     Oct 8 for B097S1MF28. Promotion ids are fake. Analytics/session attributes,
+     scripts, real links, shopper information and orders are omitted. -->
+<input id="ASIN" name="ASIN" type="hidden" value="B097S1MF28">
+<h1 id="title"><span id="productTitle">Fixture product</span></h1>
+<section id="unrelated-ad"><i id="badgepctch9000000000000009" class="a-icon newCouponBadge">Coupon:</i> Apply 50% coupon</section>
+<!-- Hidden duplicate scope first, reusing the visible promotion id, so document
+     order and getElementById cannot pick the control. -->
+<div id="promoPriceBlockMessage_feature_div" style="display:none"><div><div class="offersConsistencyEnabled">
+  <div id="hidden_duplicate_row"><span class="promoPriceBlockMessage"><div><span>
+    <div class="aok-align-center" style="display:inline-block"><i id="badgepctch1000000000000001" class="a-icon a-icon-addon newCouponBadge">Coupon:</i></div>
+    <div class="aok-align-center" style="display:inline-block"><span id="cbpctch1000000000000001">
+      <div class="a-checkbox a-checkbox-fancy"><label for="checkboxpctch1000000000000001"><input id="checkboxpctch1000000000000001" type="checkbox" name="" value=""><i class="a-icon a-icon-checkbox"></i><span class="a-label a-checkbox-label"></span></label></div>
+    </span></div>
+    <span id="couponTextpctch1000000000000001" class="a-color-success couponLabelText"> Apply 30% coupon <a href="#shop">Shop items</a> | <a href="#terms">Terms</a></span>
+  </span></div></span></div>
+</div></div></div>
+<div id="promoPriceBlockMessage_feature_div"><div><div class="offersConsistencyEnabled">
+  <div id="reinvent_price_desktop_newAccordionRow"><span class="promoPriceBlockMessage"><div><span>
+    <div class="aok-align-center" style="display:inline-block"><i id="badgepctch1000000000000001" class="a-icon a-icon-addon newCouponBadge">Coupon:</i></div>
+    <div class="aok-align-center" style="display:inline-block"><span id="cbpctch1000000000000001">
+      <div class="a-checkbox a-checkbox-fancy"><label for="checkboxpctch1000000000000001"><input id="checkboxpctch1000000000000001" type="checkbox" name="" value=""><i class="a-icon a-icon-checkbox"></i><span class="a-label a-checkbox-label"></span></label></div>
+    </span></div>
+    <div class="aok-align-center" style="display:inline"><span tabindex="0" class="aok-hidden" id="donepctch1000000000000001">
+      <span class="a-color-success">&nbsp;10% off coupon applied <a href="#shop">Shop items</a> | <a href="#terms">Terms</a></span>
+    </span></div>
+    <span id="couponTextpctch1000000000000001" class="a-color-success couponLabelText"> Apply 10% coupon <span><a href="#shop">Shop items</a></span> | <span><a href="#terms">Terms</a></span></span>
+  </span></div></span></div>
+  <div id="reinvent_price_desktop_snsAccordionRowMiddle" style="display:none"><span class="promoPriceBlockMessage"><div><span>
+    <div class="aok-align-center" style="display:inline-block"><i id="badgepctch1000000000000002" class="a-icon a-icon-addon newCouponBadge">Coupon:</i></div>
+    <div class="aok-align-center" style="display:inline-block"><span id="cbpctch1000000000000002">
+      <div class="a-checkbox a-checkbox-fancy"><label for="checkboxpctch1000000000000002"><input id="checkboxpctch1000000000000002" type="checkbox" name="" value=""><i class="a-icon a-icon-checkbox"></i><span class="a-label a-checkbox-label"></span></label></div>
+    </span></div>
+    <div class="aok-align-center" style="display:inline"><span tabindex="0" class="aok-hidden" id="donepctch1000000000000002">
+      <span class="a-color-success">&nbsp;10% off coupon applied. First Subscribe &amp; Save orders only. <a href="#shop">Shop items</a> | <a href="#terms">Terms</a></span>
+    </span></div>
+    <span id="couponTextpctch1000000000000002" class="a-color-success couponLabelText"> Save an extra 10% on your first Subscribe and Save order. <span><a href="#shop">Shop items</a></span> | <span><a href="#terms">Terms</a></span></span>
+  </span></div></span></div>
+</div></div></div>
+<section id="purchase-options">One-time purchase $19.99 · Subscribe &amp; Save $11.21 · Prime offer $11.83</section>
+<form id="order"><button id="buy" type="submit">Place order fixture</button></form>
+</body></html>

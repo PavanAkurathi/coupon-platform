@@ -8,6 +8,8 @@ import { chromium } from 'playwright';
 // request is intercepted. No real Amazon, account, cookie or backend is used.
 const extensionPath = resolve(import.meta.dir, '../dist');
 const fixture = await Bun.file(`${import.meta.dir}/fixtures/amazon-product.html`).text();
+const percentFixture = await Bun.file(`${import.meta.dir}/fixtures/amazon-product-percent.html`).text();
+let served = fixture;
 const productUrl = 'https://www.amazon.com/dp/B097S1MF28?tag=creator-fixture';
 const scratch = await mkdtemp(join(tmpdir(), 'coupon-amazon-mv3-'));
 let passed = 0;
@@ -27,7 +29,7 @@ async function exercise(path: string, fixtureHostGrant: boolean): Promise<boolea
   });
   try {
     await context.route('**/*', async route => route.request().isNavigationRequest()
-      ? route.fulfill({status:200,contentType:'text/html',body:fixture}) : route.abort());
+      ? route.fulfill({status:200,contentType:'text/html',body:served}) : route.abort());
     const page = context.pages()[0] ?? await context.newPage();
     await page.addInitScript(() => {
       const globals = window as any;
@@ -168,6 +170,57 @@ async function exercise(path: string, fixtureHostGrant: boolean): Promise<boolea
     check('unreadable product does not claim that no coupon exists', () => assert.equal(unavailable.headline,'Check this product.'));
     await popup.close();
 
+    // Second layout observed Oct 8: "Coupon:" badge + "Apply 10% coupon" checkbox.
+    const row = '#reinvent_price_desktop_newAccordionRow';
+    const percentState = () => page.evaluate(row => {
+      const active = document.activeElement as HTMLInputElement | null;
+      return {clicks:(window as any).__merchantClicks,submits:(window as any).__orderSubmits,url:location.href,
+        inRow:Boolean(active?.matches(`${row} input[type="checkbox"]`)),checked:active?.checked ?? null};
+    }, row);
+    served = percentFixture;
+    await page.goto(productUrl);
+    popup = await openPopup();
+    const percent = await popup.evaluate('({text:document.body.innerText,headline:document.getElementById("headline").textContent,hidden:document.getElementById("amazon-show").hidden})');
+    const percentBadge = await badge();
+    check('percent coupon layout is shown as a coupon without an invented coupon price', () => {
+      assert.equal(percent.headline,'Coupon spotted.'); assert.match(percent.text,/Apply 10% coupon/);
+      assert.match(percent.text,/Eligibility not confirmed/); assert.doesNotMatch(percent.text,/No visible coupon|Coupon price|30%|50%/);
+      assert.equal(percent.hidden,false); assert.equal(percentBadge,'$');
+    });
+    await popup.evaluate('document.getElementById("amazon-show").click()');
+    const percentFocused = await until(percentState, value => value.inRow, 'percent coupon focus');
+    check('percent coupon action focuses only the visible paired checkbox', () => {
+      assert.equal(percentFocused.clicks,0); assert.equal(percentFocused.submits,0);
+      assert.equal(percentFocused.checked,false); assert.equal(percentFocused.url,productUrl);
+    });
+    await popup.close();
+    await page.evaluate(row => {
+      document.querySelector(`${row} [id^="donepctch"]`)!.classList.remove('aok-hidden');
+      document.querySelector(`${row} [id^="couponTextpctch"]`)!.classList.add('aok-hidden');
+      document.querySelector(`${row} [id^="cbpctch"]`)!.classList.add('aok-hidden');
+    }, row);
+    popup = await openPopup();
+    const applied = await popup.evaluate('({text:document.body.innerText,hidden:document.getElementById("amazon-show").hidden})');
+    check('Amazon "coupon applied" state is shown as selected, not as a confirmed discount', () => {
+      assert.match(applied.text,/10% off coupon/); assert.match(applied.text,/Selected on Amazon/);
+      assert.match(applied.text,/Confirm the discount at checkout/);
+      assert.doesNotMatch(applied.text,/already applied|coupon applied|We made|saved on this cart/i); assert.equal(applied.hidden,true);
+    });
+    await popup.close();
+    await page.locator(`${row} .promoPriceBlockMessage`).evaluate(node => {
+      node.innerHTML = '<span class="couponWidgetNext"><b>Coupon:</b> <input id="next" type="checkbox"><label for="next">Save 15% with coupon</label></span>';
+    });
+    popup = await openPopup();
+    const unknown = await popup.evaluate('({text:document.body.innerText,headline:document.getElementById("headline").textContent,cards:document.getElementById("amazon-offers").childElementCount,hidden:document.getElementById("amazon-show").hidden})');
+    const unknownBadge = await badge();
+    check('unrecognized visible coupon markup asks for review instead of claiming no coupon', () => {
+      assert.equal(unknown.headline,'Check this product.'); assert.match(unknown.text,/not recognized/);
+      assert.doesNotMatch(unknown.text,/No visible coupon/); assert.equal(unknown.cards,0);
+      assert.equal(unknown.hidden,true); assert.equal(unknownBadge,'');
+    });
+    await popup.close();
+    served = fixture;
+
     await page.goto(productUrl);
     popup = await openPopup();
     assert.equal(await badge(),'$');
@@ -177,7 +230,7 @@ async function exercise(path: string, fixtureHostGrant: boolean): Promise<boolea
     popup = await openPopup();
     const cart = await popup.evaluate('({text:document.body.innerText,hidden:document.getElementById("amazon-show").hidden})');
     check('cart navigation clears product badge and explains the unsupported checkout boundary', () => {
-      assert.equal(navigatedBadge,''); assert.match(cart.text,/Cart and checkout coupon testing are not available yet/);
+      assert.equal(navigatedBadge,''); assert.match(cart.text,/order review page/); assert.match(cart.text,/Codes are not tested on Amazon/);
       assert.equal(cart.hidden,true); assert.doesNotMatch(cart.text,/\$15\.99|LOCAL DEMO/);
     });
     const forbiddenShape = await popup.evaluate('chrome.runtime.sendMessage({type:"amazon-focus",asin:"B097S1MF28",offerId:"x",fingerprint:"x",observedAt:new Date().toISOString(),click:true})');

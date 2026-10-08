@@ -2,15 +2,15 @@
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Checkout savings</title><link rel="stylesheet" href="popup.css"></head>
 <body>
   <main>
-    <header><span class="wordmark"><img src="icon.svg" width="25" height="25" alt="">CHECKOUT SAVINGS</span><span id="env-pill" class="pill">LOCAL DEMO</span></header>
+    <header><span class="wordmark"><img src="icon.svg" width="25" height="25" alt="">CHECKOUT SAVINGS</span><span id="env-pill" class="pill" hidden>LOCAL DEMO</span></header>
     <section class="hero" aria-labelledby="headline">
       <span class="eyebrow" id="store">A little help at checkout</span>
       <h1 id="headline">Good codes.<br>Better totals.</h1>
       <p id="description">A few careful checks.<br>Every dollar saved stays yours.</p>
       <div id="result" class="result" hidden><span class="result-label">SAVED ON THIS CART</span><strong id="saved-amount">$0.00</strong><span id="applied-code"></span></div>
     </section>
-    <div id="trust-row" class="trust-row"><span class="check">✓</span><span>Safety reviewed, then confirmed by 3 shoppers</span></div>
-    <button id="try-codes" class="primary" disabled><span>Try codes for me</span><span aria-hidden="true">↗</span></button>
+    <div id="trust-row" class="trust-row" hidden><span class="check">✓</span><span>Safety reviewed, then confirmed by 3 shoppers</span></div>
+    <button id="try-codes" class="primary" disabled hidden><span>Try codes for me</span><span aria-hidden="true">↗</span></button>
     <section id="amazon-panel" hidden>
       <p id="amazon-product" class="amazon-product"></p>
       <div id="amazon-offers"></div>
@@ -18,10 +18,18 @@
       <button id="amazon-refresh" class="subtle amazon-refresh" type="button">Check this page again</button>
       <p class="amazon-disclaimer">Offer shown by Amazon. Confirm eligibility and your final total at checkout.</p>
     </section>
+    <section id="amazon-checkout-panel" hidden>
+      <dl id="checkout-summary" class="checkout-summary" hidden>
+        <div id="checkout-savings-row" class="checkout-row" hidden><dt>Coupon savings shown by Amazon</dt><dd id="checkout-savings"></dd></div>
+        <div id="checkout-total-row" class="checkout-row" hidden><dt>Order total shown by Amazon</dt><dd id="checkout-total"></dd></div>
+      </dl>
+      <button id="checkout-refresh" class="primary" type="button"><span>Check totals again</span><span aria-hidden="true">↻</span></button>
+      <p class="checkout-boundary">Order not placed. No commission claimed.</p>
+    </section>
     <p id="status" class="status" role="status" aria-live="polite">Checking this checkout…</p>
     <p id="receipt" class="receipt" hidden></p>
-    <a id="demo-link" class="demo-link" href="http://localhost:4173/checkout" target="_blank" rel="noopener noreferrer" hidden>Open the demo checkout <span aria-hidden="true">↗</span></a>
-    <details id="code-section" class="secondary"><summary>Have a code to share? <span>+</span></summary><form id="code-form"><label for="code">Test one code at this checkout</label><div class="input-row"><input id="code" name="code" minlength="2" maxlength="48" pattern="[A-Za-z0-9_-]+" placeholder="Enter code" autocomplete="off" required><button id="test-code" type="submit" class="subtle">Test code</button></div><p>New codes need operator safety review, then 3 shopper confirmations, before appearing as suggestions.</p></form></details>
+    <a id="demo-link" class="demo-link" target="_blank" rel="noopener noreferrer" hidden>Open the demo checkout <span aria-hidden="true">↗</span></a>
+    <details id="code-section" class="secondary" hidden><summary>Have a code to share? <span>+</span></summary><form id="code-form"><label for="code">Test one code at this checkout</label><div class="input-row"><input id="code" name="code" minlength="2" maxlength="48" pattern="[A-Za-z0-9_-]+" placeholder="Enter code" autocomplete="off" required><button id="test-code" type="submit" class="subtle">Test code</button></div><p>New codes need operator safety review, then 3 shopper confirmations, before appearing as suggestions.</p></form></details>
     <details id="token-section" class="secondary"><summary>Community settings <span>+</span></summary><form id="token-form"><label for="token">Shopper token</label><div class="input-row"><input id="token" name="token" type="password" maxlength="512" placeholder="Paste your issued token" autocomplete="off"><button type="submit" class="subtle">Save</button></div><p id="token-note">A token lets your checkout results count once per shopper. Leave blank and save to remove it.</p></form></details>
     <footer><span class="privacy-dot"></span>No tracking cookies. No cost to you.</footer>
   </main>

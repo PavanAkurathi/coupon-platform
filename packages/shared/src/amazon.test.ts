@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { amazonFocusRequestSchema, amazonInspectionSchema, amazonProductAsin } from './amazon';
+import { amazonCheckoutInspectionSchema, amazonContentRequestSchema, amazonFocusRequestSchema, amazonInspectionSchema, amazonProductAsin, isAmazonCheckout } from './amazon';
 
 describe('Amazon product boundary', () => {
   test('accepts observed product routes without altering creator URLs', () => {
@@ -36,4 +36,32 @@ test('focus messages cannot smuggle an activation or a purchase request', () => 
   expect(amazonFocusRequestSchema.safeParse(value).success).toBe(true);
   expect(amazonFocusRequestSchema.safeParse({...value, click:true}).success).toBe(false);
   expect(amazonFocusRequestSchema.safeParse({...value, type:'purchase'}).success).toBe(false);
+});
+
+describe('Amazon checkout boundary', () => {
+  test('accepts only the observed final-review route on www.amazon.com', () => {
+    expect(isAmazonCheckout('https://www.amazon.com/checkout/p/p-123-456/spc?referrer=spc')).toBe(true);
+    expect(isAmazonCheckout('https://www.amazon.com/checkout/p/p-123-456')).toBe(true);
+    for (const url of [undefined, 'https://www.amazon.com/checkout', 'https://www.amazon.com/checkout/p/',
+      'https://www.amazon.com/gp/cart/view.html', 'https://www.amazon.com/dp/B097S1MF28',
+      'https://www.amazon.com.evil.test/checkout/p/p-1', 'http://www.amazon.com/checkout/p/p-1',
+      'https://user@www.amazon.com/checkout/p/p-1', 'https://www.amazon.co.uk/checkout/p/p-1']) {
+      expect(isAmazonCheckout(url)).toBe(false);
+    }
+  });
+  test('a checkout observation carries amounts only, and never stale ones', () => {
+    const ready = {site:'amazon-us', status:'review_ready', observedAt:'2026-10-08T12:00:00.000Z',
+      couponSavingsCents:200, orderTotalCents:1911, reason:'Coupon savings shown by Amazon at order review.'};
+    expect(amazonCheckoutInspectionSchema.safeParse(ready).success).toBe(true);
+    expect(amazonCheckoutInspectionSchema.safeParse({...ready, couponSavingsCents:0}).success).toBe(true);
+    expect(amazonCheckoutInspectionSchema.safeParse({...ready, orderTotalCents:null}).success).toBe(false);
+    expect(amazonCheckoutInspectionSchema.safeParse({...ready, status:'unavailable'}).success).toBe(false);
+    expect(amazonCheckoutInspectionSchema.safeParse({...ready, checkoutUrl:'https://www.amazon.com/checkout/p/p-1'}).success).toBe(false);
+    expect(amazonCheckoutInspectionSchema.safeParse({...ready, earnedCents:100}).success).toBe(false);
+  });
+  test('content requests cannot smuggle a purchase into checkout inspection', () => {
+    expect(amazonContentRequestSchema.safeParse({type:'amazon-checkout-inspect'}).success).toBe(true);
+    expect(amazonContentRequestSchema.safeParse({type:'amazon-checkout-inspect', placeOrder:true}).success).toBe(false);
+    expect(amazonContentRequestSchema.safeParse({type:'amazon-place-order'}).success).toBe(false);
+  });
 });

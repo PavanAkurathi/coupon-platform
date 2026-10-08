@@ -1,5 +1,5 @@
-import { candidatesResponseSchema, checkoutReadySchema, couponPreflightResponseSchema, couponReportSchema, couponReportResponseSchema, merchantsResponseSchema, amazonProductAsin, amazonInspectionSchema, amazonFocusResponseSchema } from '@repo/shared';
-import type { AmazonInspection, AmazonFocusRequest } from '@repo/shared';
+import { candidatesResponseSchema, checkoutReadySchema, couponPreflightResponseSchema, couponReportSchema, couponReportResponseSchema, merchantsResponseSchema, amazonProductAsin, amazonInspectionSchema, amazonFocusResponseSchema, amazonCheckoutInspectionSchema, isAmazonCheckout } from '@repo/shared';
+import type { AmazonInspection, AmazonFocusRequest, AmazonCheckoutInspection } from '@repo/shared';
 import { z } from 'zod';
 import { API_ORIGIN, inspectionSchema, popupRequestSchema, resultMatchesCheckout, trialResultSchema, unavailableCheckout, type PopupStatus, type Reply, type TrialResult } from './protocol';
 import { adapterFor } from './adapters/registry';
@@ -18,18 +18,27 @@ const secureStorage = Promise.all([
 ]);
 type Merchant = z.infer<typeof merchantsResponseSchema>['merchants'][number];
 
+const SERVICE_UNAVAILABLE = 'The coupon service is unavailable. Please try again shortly.';
 async function api<T>(path: string, schema: z.ZodType<T>, body?: unknown, token?: string): Promise<T> {
-  const response = await fetch(`${API_ORIGIN}${path}`, {
-    method: body ? 'POST' : 'GET', credentials: 'omit', redirect: 'error', cache: 'no-store',
-    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_ORIGIN}${path}`, {
+      method: body ? 'POST' : 'GET', credentials: 'omit', redirect: 'error', cache: 'no-store',
+      headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    // Network, CSP and timeout failures (TypeError/AbortError/TimeoutError) never surface browser wording.
+    throw new Error(SERVICE_UNAVAILABLE);
+  }
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) throw new Error('Your shopper token was not accepted. Update it in settings.');
     if (response.status === 429) throw new Error('Too many reports for now. Please try again later.');
-    throw new Error('The coupon service is unavailable. Please try again shortly.');
+    throw new Error(SERVICE_UNAVAILABLE);
   }
-  return schema.parse(await response.json());
+  // A body timeout or an unexpected payload is reported the same way.
+  try { return schema.parse(await response.json()); }
+  catch { throw new Error(SERVICE_UNAVAILABLE); }
 }
 async function merchantFor(tab: chrome.tabs.Tab): Promise<Merchant | undefined> {
   const meta = adapterFor(tab.url);
@@ -77,6 +86,43 @@ async function inspectAmazon(tab: chrome.tabs.Tab): Promise<AmazonInspection> {
   } catch { return fallback; }
 }
 
+// Read-only order-summary observation. It never grants trial, apply or purchase
+// authority, and nothing from it is stored or sent to the coupon service.
+const CHECKOUT_OBSERVATION_MAX_AGE_MS = 60 * 1000;
+async function inspectAmazonCheckout(tab: chrome.tabs.Tab): Promise<AmazonCheckoutInspection> {
+  const unavailable = (reason: string): AmazonCheckoutInspection => ({
+    site: 'amazon-us', status: 'unavailable', observedAt: new Date().toISOString(),
+    couponSavingsCents: null, orderTotalCents: null, reason,
+  });
+  const fallback = unavailable('Could not read the Amazon order summary.');
+  const changed = unavailable('The checkout page changed while it was being read.');
+  const tabId = tab.id;
+  const urlBefore = tab.url;
+  if (!tabId || !isAmazonCheckout(urlBefore)) return fallback;
+  const unchanged = async () => {
+    const current = await chrome.tabs.get(tabId);
+    return current.url === urlBefore && isAmazonCheckout(current.url);
+  };
+  try {
+    if (!await unchanged()) return changed;
+    const [injected] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [0] }, files: ['amazon-content.js'] });
+    if (!await unchanged()) return changed;
+    const sendOptions = injected?.documentId != null
+      ? ({ documentId: injected.documentId } as chrome.tabs.MessageSendOptions)
+      : { frameId: 0 };
+    const reply: Reply<unknown> = await chrome.tabs.sendMessage(tabId, { type: 'amazon-checkout-inspect' }, sendOptions);
+    if (!await unchanged()) return changed;
+    if (!reply?.ok) return fallback;
+    const inspection = amazonCheckoutInspectionSchema.parse(reply.data);
+    const observedMs = Date.parse(inspection.observedAt);
+    const now = Date.now();
+    if (isNaN(observedMs) || observedMs > now || now - observedMs > CHECKOUT_OBSERVATION_MAX_AGE_MS) {
+      return unavailable('The order summary reading was out of date. Check totals again.');
+    }
+    return inspection;
+  } catch { return fallback; }
+}
+
 async function badge(tab: chrome.tabs.Tab): Promise<void> {
   if (!tab.id) return;
   const generation = nextBadgeGeneration(tab.id);
@@ -92,6 +138,19 @@ async function status(): Promise<PopupStatus> {
   const tab = await activeTab(); const tabId = tab.id!;
   const { shopperToken } = await chrome.storage.local.get('shopperToken');
 
+  // Amazon checkout review — checked before the product and merchant/API branches.
+  if (isAmazonCheckout(tab.url)) {
+    const generation = nextBadgeGeneration(tabId);
+    const amazonCheckout = await inspectAmazonCheckout(tab);
+    const couponShown = amazonCheckout.status === 'review_ready' && (amazonCheckout.couponSavingsCents ?? 0) > 0;
+    if (badgeGenerations.get(tabId) === generation && (await chrome.tabs.get(tabId)).url === tab.url) {
+      await chrome.action.setBadgeText({ tabId, text: couponShown ? '$' : '' });
+      if (couponShown) await chrome.action.setBadgeBackgroundColor({ tabId, color: '#215748' });
+    }
+    // Not stored in session; the response carries no URL or checkout session ID.
+    return { ...unavailableCheckout, supported: false, hasToken: Boolean(shopperToken), amazonCheckout };
+  }
+
   // Amazon product inspection — before any merchant API calls; no DB dependency.
   const asin = amazonProductAsin(tab.url);
   const amazonPage = tab.url?.startsWith('https://www.amazon.com/');
@@ -100,7 +159,7 @@ async function status(): Promise<PopupStatus> {
     const amazon: AmazonInspection = asin ? await inspectAmazon(tab) : {
       site: 'amazon-us', status: 'unavailable', asin: null, productTitle: '',
       observedAt: new Date().toISOString(), fingerprint: 'unsupported-page', offers: [],
-      reason: 'Open an Amazon.com product page to check visible coupons. Cart and checkout coupon testing are not available yet.',
+      reason: 'Open an Amazon.com product page to check visible coupons, or your order review page to see the coupon savings Amazon shows. Codes are not tested on Amazon.',
     };
     if (badgeGenerations.get(tabId) === generation && (await chrome.tabs.get(tabId)).url === tab.url) {
       await chrome.action.setBadgeText({ tabId, text: amazon.status === 'offers_found' ? '$' : '' });
@@ -143,6 +202,8 @@ async function focusAmazon(data: AmazonFocusRequest): Promise<{ focused: true }>
 async function run(code?: string): Promise<{ result: TrialResult; reportNote: string }> {
   await secureStorage;
   const tab = await activeTab(); const tabId = tab.id!;
+  // Checkout review is observation only; it never authorizes code trials.
+  if (isAmazonCheckout(tab.url)) throw new Error('Amazon checkout is review-only. Codes are not tested here.');
   if (running.has(tabId)) throw new Error('Coupon testing is already running.');
   running.add(tabId);
   try {

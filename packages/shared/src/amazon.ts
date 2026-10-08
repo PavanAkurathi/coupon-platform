@@ -36,6 +36,7 @@ export const amazonFocusRequestSchema = z.object({
 }).strict();
 export const amazonContentRequestSchema = z.discriminatedUnion('type', [
   z.object({type:z.literal('amazon-inspect')}).strict(),
+  z.object({type:z.literal('amazon-checkout-inspect')}).strict(),
   amazonFocusRequestSchema,
 ]);
 export const amazonFocusResponseSchema = z.object({focused:z.literal(true)}).strict();
@@ -52,4 +53,31 @@ export function amazonProductAsin(raw: string | undefined): string | null {
       ?? url.pathname.match(/^\/gp\/product\/([A-Z0-9]{10})(?:\/|$)/);
     return match?.[1] ?? null;
   } catch { return null; }
+}
+
+// A merchant checkout summary is an observation, not a placed order, earned
+// commission, shopper report or proof that this extension caused the saving.
+export const amazonCheckoutInspectionSchema = z.object({
+  site: z.literal('amazon-us'),
+  status: z.enum(['review_ready', 'unavailable']),
+  observedAt: z.iso.datetime(),
+  couponSavingsCents: centsSchema.nullable(),
+  orderTotalCents: centsSchema.nullable(),
+  reason: z.string().max(400),
+}).strict().superRefine((value, ctx) => {
+  if (value.status === 'review_ready' && (value.couponSavingsCents === null || value.orderTotalCents === null)) {
+    ctx.addIssue({code:'custom', message:'A checkout observation requires unambiguous amounts.'});
+  }
+  if (value.status === 'unavailable' && (value.couponSavingsCents !== null || value.orderTotalCents !== null)) {
+    ctx.addIssue({code:'custom', message:'An unavailable checkout must clear previous amounts.'});
+  }
+});
+export type AmazonCheckoutInspection = z.infer<typeof amazonCheckoutInspectionSchema>;
+export function isAmazonCheckout(raw: string | undefined): boolean {
+  if (!raw) return false;
+  try {
+    const url = new URL(raw);
+    return url.origin === 'https://www.amazon.com' && !url.username && !url.password
+      && /^\/checkout\/p\/[^/]+(?:\/|$)/.test(url.pathname);
+  } catch { return false; }
 }
