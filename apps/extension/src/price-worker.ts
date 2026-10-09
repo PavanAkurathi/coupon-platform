@@ -51,6 +51,19 @@ async function serviceOffers(product: PageProduct): Promise<{ offers: PriceOffer
   }
 }
 
+// The same listing seen twice: the newest observation wins. The shopper's own
+// signed-in view can differ from an anonymous live check (October 9: Amazon showed
+// a signed-out check $96.49 from one seller, the founder $96.99 for the same ASIN).
+export function newestPerListing(offers: PriceOffer[]): PriceOffer[] {
+  const newest = new Map<string, PriceOffer>();
+  for (const offer of offers) {
+    const key = `${offer.merchantDomain}|${offer.url}`;
+    const current = newest.get(key);
+    if (!current || Date.parse(offer.observedAt) > Date.parse(current.observedAt)) newest.set(key, offer);
+  }
+  return [...newest.values()];
+}
+
 export async function comparePrice(product: PageProduct): Promise<PriceComparison> {
   const now = new Date();
   const local = (await seenProducts()).filter((item) => !sameMerchant(item.merchantDomain, product.merchantDomain)
@@ -63,7 +76,7 @@ export async function comparePrice(product: PageProduct): Promise<PriceCompariso
     { source: 'seen_by_you', status: local.length ? 'checked' : 'unavailable', offers: local.length },
     ...remote.coverage,
   ];
-  const result = compareOffers(product, [...checked, ...local, ...remote.offers], { now: new Date(), coverage });
+  const result = compareOffers(product, newestPerListing([...checked, ...local, ...remote.offers]), { now: new Date(), coverage });
   if (result.status === 'better_offer' || product.identity.condition !== 'new') return result;
   // Without the price-alerts permission the worker cannot check other stores at all.
   if (!await chrome.permissions.contains({ origins: LIVE_ORIGINS })) {
