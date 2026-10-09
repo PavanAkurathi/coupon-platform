@@ -10,7 +10,8 @@ import { amazonProductAsin, cleanProductUrl, normalizeGtin, normalizeModel, page
 // there, duplicate hidden blocks must agree and Amazon's buy-box amount is required.
 
 // The page being read: the live document, or a fetched one parsed in the offscreen document.
-export type Page = { doc: Document; url: URL; live: boolean };
+// buyBoxCents: from Amazon's own offer list, for fetched pages with several purchase modes.
+export type Page = { doc: Document; url: URL; live: boolean; buyBoxCents?: number | null };
 export type ProductRead =
   | { status: 'product'; product: PageProduct }
   | { status: 'not_product' | 'unrecognized'; reason: string };
@@ -21,6 +22,8 @@ const MERCHANT_NAMES: Record<string, string> = {
   'bhphotovideo.com': 'B&H Photo', 'macys.com': "Macy's", 'kohls.com': "Kohl's", 'ulta.com': 'Ulta Beauty',
   'sephora.com': 'Sephora', 'cvs.com': 'CVS', 'walgreens.com': 'Walgreens', 'samsclub.com': "Sam's Club",
 };
+// Marketplaces where a listing without a stated condition may be used.
+const MARKETPLACES = new Set(['ebay.com', 'mercari.com', 'poshmark.com', 'etsy.com', 'facebook.com', 'craigslist.org', 'offerup.com']);
 const rootDomain = (host: string) => host.toLowerCase().split('.').slice(-2).join('.');
 export function merchantName(host: string): string {
   return MERCHANT_NAMES[rootDomain(host)] ?? host.replace(/^www\./, '');
@@ -97,9 +100,10 @@ function amazonPrice(page: Page): number | null {
   const currencies = new Set([...document.querySelectorAll<HTMLInputElement>('input[name="items[0.base][customerVisiblePrice][currencyCode]"]')].map((input) => input.value));
   if (amounts.has(null) || (amounts.size && (currencies.size !== 1 || !currencies.has('USD')))) return null;
   if (!page.live) {
-    // No layout to tell purchase modes apart: only an unambiguous buy box counts.
-    if (amounts.size !== 1) return null;
-    const buyBox = [...amounts][0]!;
+    // No layout to tell purchase modes apart: the buy box must be unambiguous, or
+    // named by Amazon's own offer list.
+    const buyBox = amounts.size === 1 ? [...amounts][0]! : page.buyBoxCents != null && amounts.has(page.buyBoxCents) ? page.buyBoxCents : null;
+    if (buyBox === null) return null;
     return new Set(toPay.map(priceOf)).has(buyBox) ? buyBox : null;
   }
   let seen: number | null = null;
@@ -153,7 +157,8 @@ function readAmazon(page: Page, now: Date): ProductRead {
   const seller = clean(document.querySelector('[offer-display-feature-name="desktop-merchant-info"] .offer-display-feature-text')?.textContent).slice(0, 100) || null;
   return finish({
     identity: { brand: brand?.slice(0, 160) ?? null, model, gtin: gtins.size === 1 ? [...gtins][0] : null,
-      variant: clean(rows.get('color') ?? rows.get('colour') ?? rows.get('color name')).slice(0, 160) || null,
+      // Colour names differ between stores ("Steel" vs "Silver"); the model code pins the variant.
+      variant: null,
       packQuantity: packQuantity(title), condition: usedSelected ? 'used' : conditionFromTitle(title) ?? 'new' },
     title, merchant: 'Amazon', merchantDomain: 'www.amazon.com', seller, url: `https://www.amazon.com/dp/${asin}`,
     priceCents, shippingCents: amazonShipping(document, priceCents), currency: 'USD',
@@ -187,7 +192,7 @@ function readWalmart(page: Page, now: Date): ProductRead {
   const condition = /^new$/i.test(product.conditionType ?? '') ? 'new' : conditionFromTitle(title) ?? 'unknown';
   return finish({
     identity: { brand: clean(product.brand) || null, model: normalizeModel(product.model ?? null), gtin: normalizeGtin(product.upc ?? ''),
-      variant: typeof product.color === 'string' ? clean(product.color).slice(0, 160) || null : null,
+      variant: null,
       packQuantity: packQuantity(title), condition },
     title, merchant: 'Walmart', merchantDomain: page.url.hostname, seller: clean(product.sellerName).slice(0, 100) || null,
     url: cleanProductUrl(page.url.href), priceCents, shippingCents: freeShipping ? 0 : null, currency: 'USD',
@@ -223,12 +228,14 @@ export function jsonLdProducts(scripts: string[]): Json[] {
 }
 const SCHEMA = /^https?:\/\/schema\.org\//i;
 function schemaEnum(value: unknown): string { return (textOf(value) ?? '').replace(SCHEMA, ''); }
-function conditionOf(offer: Json, title: string): 'new' | 'used' | 'refurbished' | 'unknown' {
+function conditionOf(offer: Json, title: string, host: string): 'new' | 'used' | 'refurbished' | 'unknown' {
   const value = schemaEnum(offer.itemCondition);
   if (/^NewCondition$/i.test(value)) return conditionFromTitle(title) ?? 'new';
   if (/^UsedCondition$/i.test(value)) return 'used';
   if (/^RefurbishedCondition$/i.test(value)) return 'refurbished';
-  return conditionFromTitle(title) ?? 'unknown';
+  if (value) return 'unknown';
+  // Retailers that omit itemCondition sell new; marketplace listings stay unknown.
+  return MARKETPLACES.has(rootDomain(host)) ? 'unknown' : conditionFromTitle(title) ?? 'new';
 }
 
 // A page price is only useful as an unrestricted offer when its eligibility is
@@ -280,7 +287,10 @@ function shippingOf(offer: Json): number | null {
     rates.push(cents);
   }
   const cents = new Set(rates);
-  return cents.size === 1 && !cents.has(null) ? [...cents][0]! : null;
+  return cents.size === 1 ? [...cents][0]! : null;
+}
+function samePage(url: string | null, here: string | null): boolean {
+  return Boolean(url && here && (url === here || here.startsWith(url) || url.startsWith(here)));
 }
 function absolute(raw: string, base: URL): string | null {
   try { return cleanProductUrl(new URL(raw, base).href); } catch { return null; }
@@ -303,6 +313,8 @@ function jsonLdPriceVisible(page: Page, title: string, cents: number): boolean {
     const prices = [...page.doc.querySelectorAll('.x-price-primary')].filter(visible);
     return prices.length === 1 && matches(prices[0]!);
   }
+  // Most stores (Best Buy among them) publish JSON-LD without microdata scopes.
+  if (!page.doc.querySelector(PRODUCT_SCOPE)) return priceVisible(page, cents);
   const scopes = [...page.doc.querySelectorAll(PRODUCT_SCOPE)].filter(visible).filter((scope) =>
     [...scope.querySelectorAll('[itemprop~="name"]')].some((name) => visible(name)
       && name.closest(PRODUCT_SCOPE) === scope && clean(name.innerText).toLowerCase() === title.toLowerCase()));
@@ -318,9 +330,11 @@ export function readJsonLd(page: Page, now: Date): ProductRead {
   const here = cleanProductUrl(page.url.href);
   const own = products.filter((node) => {
     const urls = [node.url, ...asArray(node.offers).filter(isObject).map((offer) => offer.url)].map((url) => typeof url === 'string' ? absolute(url, page.url) : null);
-    return here && urls.some((url) => url === here);
+    return here && urls.some((url) => samePage(url, here));
   });
-  const candidates = own;
+  // A page with a single Product describes that product (Best Buy's JSON-LD URL omits
+  // the /sku/ suffix of the page URL); several Products need a URL match.
+  const candidates = products.length === 1 ? products : own;
   if (candidates.length !== 1) return { status: 'unrecognized', reason: 'This page lists several products.' };
   const node = candidates[0]!;
   const title = clean(textOf(node.name)).slice(0, 300);
@@ -330,7 +344,7 @@ export function readJsonLd(page: Page, now: Date): ProductRead {
   const pool = asArray(node.offers).filter(isObject);
   if (!pool.length || pool.some((offer) => !types(offer).includes('Offer') || types(offer).includes('AggregateOffer')
     || textOf(offer.priceCurrency) !== 'USD' || dollarsToCents(offer.price) === null || restrictedOffer(offer, now)
-    || (offer.url !== undefined && (typeof offer.url !== 'string' || absolute(offer.url, page.url) !== here)))) {
+    || (offer.url !== undefined && (typeof offer.url !== 'string' || !samePage(absolute(offer.url, page.url), here))))) {
     return { status: 'unrecognized', reason: 'This page has no unrestricted price for this exact product.' };
   }
   const prices = new Set(pool.map((offer) => dollarsToCents(offer.price)));
@@ -343,7 +357,7 @@ export function readJsonLd(page: Page, now: Date): ProductRead {
   const availability = schemaEnum(offer.availability);
   return finish({
     identity: { brand: textOf(node.brand)?.slice(0, 160) ?? null, model: mpn ?? model, gtin: gtins.size === 1 ? [...gtins][0] : null,
-      variant: textOf(node.color)?.slice(0, 160) ?? null, packQuantity: packQuantity(title), condition: conditionOf(offer, title) },
+      variant: textOf(node.color)?.slice(0, 160) ?? null, packQuantity: packQuantity(title), condition: conditionOf(offer, title, host) },
     title, merchant: merchantName(host), merchantDomain: host, seller: textOf(offer.seller)?.slice(0, 100) ?? null,
     url: cleanProductUrl(page.url.href), priceCents, shippingCents: shippingOf(offer), currency: 'USD',
     availability: /^(InStock|LimitedAvailability|OnlineOnly)$/i.test(availability) ? 'in_stock'

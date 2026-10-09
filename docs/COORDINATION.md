@@ -188,3 +188,24 @@ Codex started the founder's cross-store price packet at 7:16 PM ([packet](../../
   - Amazon reader accepts the shown price among several purchase modes and reads `#prodDetails`.
   - Fixture e2e 13/13; live 5/5 (eBay steps skipped: eBay serves its error page to automated browsers).
   - Packaged as `outputs/checkout-savings-0.3.1`.
+
+## October 9 morning: 0.3.2 (coordinator)
+
+The founder's real Chrome showed no alert on Best Buy MG9575/49 ($99.99) although Amazon had it for $96.49. There were two causes, and both are fixed.
+
+**1. The background Amazon check skipped pages with several purchase modes** (new $96.49 / used $81.23). For those pages, Amazon's offer list (`aodAjaxMain`) now names the buy box. Files: `store-lookups.ts`, `offscreen.ts`, and `product-reader.ts` (`Page.buyBoxCents`).
+
+**2. Codex's 9:20 AM hardening** was left unfinished by its usage limit and committed mid-edit in 99e25a8. It blocked matching and reading in four ways; this is what changed:
+- **Variant rule:** a variant on one side and none on the other now passes when the exact model codes match. Two stated variants must still agree (token containment: "Matte Black" matches "Black"; "Steel" does not match "Silver").
+- **Amazon and Walmart colour fields:** no longer used, because colour names differ between stores.
+- **JSON-LD price check:** falls back to the visible-price check when a page has no microdata Product scope (Best Buy).
+- **Product URL matching:** a single JSON-LD Product is accepted, and URL matching is lenient again.
+- **Kept from Codex:** the restricted-offer filter, the model and brand conflict checks, the strict shipping details, `InStoreOnly` treated as not purchasable, the abortable live checks and the v2 cache.
+- **Popup:** says "Turn on price alerts" when the live-store permission is missing.
+
+**Tests:**
+- Shared 50/50 and extension unit 39/39; price fixture e2e passes my 13 checks.
+- Live 4/4: Best Buy → "$3.50 less at Amazon"; the knife correctly stays quiet because Amazon.com is $47.00 and only used offers are cheaper.
+- Codex's new e2e "cached offer before slow sources" fails because its feature isn't implemented yet. Left for Codex (back at 2:13 PM).
+
+**Install:** built from a clean HEAD copy plus these files (excluding the checkout-tips session's in-progress files), installed into `coupon-platform/apps/extension/dist` and packaged as `outputs/checkout-savings-0.3.2`.

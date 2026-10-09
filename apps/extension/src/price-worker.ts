@@ -4,7 +4,7 @@ import {
 } from '@repo/shared';
 import { PRICE_API_ORIGIN, type Reply } from './protocol';
 import type { ProductRead } from './product-reader';
-import { liveCheck } from './store-lookups';
+import { LIVE_ORIGINS, liveCheck } from './store-lookups';
 
 // Price comparison in the extension worker. Two offer sources:
 // - seen_by_you: product pages this shopper viewed, kept only in this browser
@@ -64,8 +64,13 @@ export async function comparePrice(product: PageProduct): Promise<PriceCompariso
     ...remote.coverage,
   ];
   const result = compareOffers(product, [...checked, ...local, ...remote.offers], { now: new Date(), coverage });
-  if (result.status === 'not_checked' && product.identity.condition === 'new') {
-    return { ...result, reason: 'No other store price for this exact item yet. Open it on another store, or connect a price source.' };
+  if (result.status === 'better_offer' || product.identity.condition !== 'new') return result;
+  // Without the price-alerts permission the worker cannot check other stores at all.
+  if (!await chrome.permissions.contains({ origins: LIVE_ORIGINS })) {
+    return { ...result, reason: 'Turn on price alerts below to check Amazon and Walmart for this exact item.' };
+  }
+  if (result.status === 'not_checked') {
+    return { ...result, reason: 'No other store price for this exact item right now.' };
   }
   return result;
 }

@@ -1,4 +1,4 @@
-import { productIdentityKey, pageProductSchema, sameMerchant, sameProduct, PRICE_EVIDENCE_MAX_AGE_MS, type PageProduct, type PriceCoverage, type ProductIdentity } from '@repo/shared';
+import { amazonProductAsin, productIdentityKey, pageProductSchema, sameMerchant, sameProduct, PRICE_EVIDENCE_MAX_AGE_MS, type PageProduct, type PriceCoverage, type ProductIdentity } from '@repo/shared';
 import type { ProductRead } from './product-reader';
 import type { SearchCandidate, SearchStore } from './search-parsers';
 
@@ -62,7 +62,7 @@ async function fetchPage(url: string, host: string, signal?: AbortSignal): Promi
 }
 
 let creating: Promise<void> | null = null;
-async function offscreen<T>(message: { type: 'parse-product' | 'parse-search'; html: string; url: string; store?: SearchStore }): Promise<T> {
+async function offscreen<T>(message: { type: 'parse-product' | 'parse-search'; html: string; url: string; store?: SearchStore; offersHtml?: string }): Promise<T> {
   const open = await chrome.runtime.getContexts({ contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT] });
   if (!open.length) {
     creating ??= chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: [chrome.offscreen.Reason.DOM_PARSER],
@@ -85,14 +85,25 @@ function pick(candidates: SearchCandidate[], identity: ProductIdentity, byGtin: 
   return [...new Map([...named, ...organic].map((candidate) => [candidate.url, candidate])).values()].slice(0, MAX_PRODUCT_PAGES);
 }
 
+// Amazon pages with several purchase modes (new, used, list price) can't say which
+// price is the buy box without layout; Amazon's own offer list (observed October 9,
+// B0G22WX3YR: $96.49 new vs $81.23 used) names it. Fetched only when needed.
+async function readCandidate(store: Store, url: string, signal?: AbortSignal): Promise<ProductRead> {
+  const html = await fetchPage(url, store.host, signal);
+  const first = await offscreen<ProductRead>({ type: 'parse-product', html, url });
+  const asin = store.key === 'amazon' && first.status === 'unrecognized' ? amazonProductAsin(url) : null;
+  if (!asin) return first;
+  const offersHtml = await fetchPage(`https://www.amazon.com/gp/product/ajax/aodAjaxMain/ref=dp_aod_ALL_mbc?asin=${asin}&pc=dp&experienceId=aodAjaxMain`, store.host, signal);
+  return offscreen<ProductRead>({ type: 'parse-product', html, url, offersHtml });
+}
+
 async function checkStore(store: Store, identity: ProductIdentity, signal?: AbortSignal): Promise<Cached> {
   const search = store.search(identity);
   if (!search) return { at: Date.now(), status: 'unavailable', products: [] };
   try {
     const candidates = pick(await offscreen<SearchCandidate[]>({ type: 'parse-search', store: store.key, html: await fetchPage(search.url, store.host, signal), url: search.url }),
       identity, search.byGtin);
-    const reads = await Promise.allSettled(candidates.map(async (candidate) =>
-      offscreen<ProductRead>({ type: 'parse-product', html: await fetchPage(candidate.url, store.host, signal), url: candidate.url })));
+    const reads = await Promise.allSettled(candidates.map((candidate) => readCandidate(store, candidate.url, signal)));
     const products = reads.flatMap((read) => {
       if (read.status !== 'fulfilled' || read.value.status !== 'product') return [];
       const parsed = pageProductSchema.safeParse(read.value.product);

@@ -63,7 +63,11 @@ test('the same trimmer matches across Amazon, eBay and Walmart', () => {
   expect(sameProduct(walmart.identity, {...ebay.identity, gtin: '00075020114112'})).toBe(false);
   expect(sameProduct(walmart.identity, {...ebay.identity, model: 'MG3740'})).toBe(false);
   expect(sameProduct(walmart.identity, {...ebay.identity, brand: 'Remington'})).toBe(false);
-  expect(sameProduct(amazon.identity, {...ebay.identity, variant: null})).toBe(false);
+  // Stores often omit or rename colours; the exact model code decides when only one side states one
+  // (October 9: Best Buy says "Silver" for MG9575/49, Amazon's listing has no colour field).
+  expect(sameProduct(amazon.identity, {...ebay.identity, variant: null})).toBe(true);
+  expect(sameProduct({...amazon.identity, variant: 'Matte Black'}, ebay.identity)).toBe(true);
+  expect(sameProduct({...amazon.identity, variant: 'Steel'}, {...ebay.identity, variant: 'Silver'})).toBe(false);
   expect(sameProduct(walmart.identity, {...ebay.identity, variant: null})).toBe(true); // equal GTIN proves the variant
 });
 

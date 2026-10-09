@@ -159,16 +159,19 @@ export function sameMerchant(a: string, b: string): boolean {
   return root(a) === root(b);
 }
 
+// "Black" and "Matte Black" agree; "Black" and "Silver" do not.
+export function variantsCompatible(a: string, b: string): boolean {
+  return brandsCompatible(a, b);
+}
 export function sameProduct(a: ProductIdentity, b: ProductIdentity): boolean {
   if (a.condition === 'unknown' || a.condition !== b.condition || a.packQuantity !== b.packQuantity) return false;
   // Conflicting facts must never disappear behind a matching (possibly mistyped) GTIN.
   if (a.model && b.model && a.model !== b.model) return false;
   if (a.brand && b.brand && !brandsCompatible(a.brand, b.brand)) return false;
-  if (a.variant && b.variant && a.variant.toLowerCase() !== b.variant.toLowerCase()) return false;
+  if (a.variant && b.variant && !variantsCompatible(a.variant, b.variant)) return false;
   if (a.gtin && b.gtin) return a.gtin === b.gtin;
-  // A model can describe several colours/sizes. Only the same GTIN can bridge
-  // a missing variant without guessing that the selected options are identical.
-  if (Boolean(a.variant) !== Boolean(b.variant)) return false;
+  // Stores name variants inconsistently or not at all; an exact manufacturer
+  // model code (e.g. MG9575/49) identifies the item, and stated variants must agree.
   return Boolean(a.model && b.model && a.model === b.model && brandsCompatible(a.brand, b.brand));
 }
 
