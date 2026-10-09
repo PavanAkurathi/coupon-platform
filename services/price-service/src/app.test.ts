@@ -55,7 +55,9 @@ test('eBay requires independent whole-model and variant evidence', () => {
   const black = {...identity, variant: 'Black'};
   expect(offerFromEbay({...listing, title: `${listing.title} White`}, black, 'model', now)).toBeNull();
   expect(offerFromEbay({...listing, title: `${listing.title} White`}, black, 'gtin', now)).toBeNull();
-  expect(offerFromEbay(listing, black, 'model', now)).toBeNull(); // no variant evidence
+  // No colour in the title: the exact model code decides (shared rule, October 9), and the
+  // offer carries no variant claim of its own. A different stated colour still rejects it.
+  expect(offerFromEbay(listing, black, 'model', now)?.product.variant).toBeNull();
   const offer = offerFromEbay({...listing, title: `${listing.title} Black`}, black, 'model', now)!;
   expect(offer.product.variant).toBe('Black');
   expect(offer.product.model).toBe('MG5965/49');

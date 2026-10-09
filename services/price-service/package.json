@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "dev": "bun --watch src/index.ts",
     "start": "bun dist/index.js",
-    "test": "bun test"
+    "test": "bun test",
+    "build:function": "bun build src/function.ts --target=node --format=esm --outfile=dist/function/index.mjs"
   },
   "dependencies": {
     "@repo/shared": "workspace:*",
