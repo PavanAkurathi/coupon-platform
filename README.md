@@ -44,7 +44,7 @@ For a browser smoke test against the running, seeded stack and demo, run `bun ru
 ```text
 apps/extension            popup → worker → API; content script → promo controls
 services/coupon-service   Hono API → Drizzle / Postgres; Redis rate limits
-services/price-service    health + 501 stub (phase 2)
+services/price-service    cross-store offers for price alerts (eBay Browse API, reviewed feed)
 services/cashback-service health + 501 stub (phase 3)
 packages/shared           Zod contracts, attribution and fee policy
 ```
@@ -98,7 +98,7 @@ After a future authenticated settlement, `confirmedEarningsLine` renders **“Yo
 ## Phase order
 
 1. **Extension + coupons now:** prove the checkout flow, invite a small reporting cohort, add one real merchant adapter at a time. No crawling infrastructure or affiliate network integration yet.
-2. **Price tracker next:** add price observations and history, then opt-in drop alerts. `/v1/prices/*` intentionally returns `501` today.
+2. **Price alerts (October 8):** "cheaper elsewhere" banners and a one-time buy-click pause on any store, from prices seen in the shopper's browser plus `POST /v1/prices/offers` (eBay when keys are set). See [docs/PRICE-ALERTS.md](docs/PRICE-ALERTS.md). Price history and drop alerts are not built.
 3. **Cashback last:** integrate earned-attribution merchant events and a ledger, using the existing trust/fee policy. `/v1/cashback/*` intentionally returns `501` today.
 
 Before a public beta: add real shopper verification/token recovery, merchant-specific terms/expiry curation, HTTPS API configuration and matching extension permissions, and real checkout regression fixtures. No accounts UI, billing system or broad merchant scraping is needed for the first private beta.

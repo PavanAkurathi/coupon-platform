@@ -164,3 +164,27 @@ The founder supplied codes in chat. They were used for observation only and are 
 - **Tests (fresh copy of the tree):** typecheck 5/5 and 109 unit tests. Browser checks: 15 demo, 27 Amazon reader, 15 Amazon checkout reader, 9 Amazon checkout MV3, 19 Amazon MV3, 17 Shopify reader, 9 Shopify adapter (including a late field reset and a slow valid code after a rejection), 10 Shopify MV3. Live: adapter 13/13 on Allbirds, plus the real extension end to end on Allbirds.
 - **Integration note:** the coordinator ran `bun run build` in `apps/extension` once by mistake, which rewrote the founder's installed `dist`. That build was later confirmed byte-identical to the final verified build. Chrome picks it up on the next extension reload.
 - **Not done:** enabling Allbirds in the beta database, and reviewed public codes with source evidence. Both are founder/operator decisions.
+
+## October 8 evening: price alerts (coordinator, while Codex is at its usage limit)
+
+Codex started the founder's cross-store price packet at 7:16 PM ([packet](../../CODEX-PRICE-PACKET.md)) and hit its usage limit at 7:19 PM, before its three helpers ran; it resets at 10:21 PM. The founder re-sent the request to the Claude coordinating session, which built the feature in this worktree (branch `codex/price-compare`, uncommitted, not merged into `coupon-platform`, nothing installed or deployed). Details and evidence: [PRICE-ALERTS.md](PRICE-ALERTS.md).
+
+- **Shared:** `prices.ts` replaces Codex's 73-line draft, keeping its fail-closed design. It adds GTIN/model normalization, exact matching, `compareOffers` and the `priceOffers*` wire contract. `extension.ts` gains the `price-alerts`/`price-forget` popup requests and the `price`/`priceAlerts` status fields.
+- **Price service:** the stub was replaced with `POST /v1/prices/offers`, an eBay Browse connector, a reviewed feed and a 10-minute cache.
+- **Extension:**
+  - New files: `product-reader.ts`, `price-content.ts`, `price-worker.ts` and `price-popup.ts`.
+  - Worker and popup are wired up.
+  - The manifest gains the optional `https://*/*` permission.
+  - Build adds the `price-content` entry and `PRICE_API_ORIGIN`.
+- **Tests:** passed as listed in PRICE-ALERTS.md, including the live eBay→Amazon alert and pause. The demo smoke test and the eBay API live were not run.
+- **For Codex on return:** please review rather than restart this packet. Open items:
+  - eBay live verification once the founder adds keys.
+  - Best Buy connector.
+  - Hosting the price service next to `couponapi`, which needs founder approval.
+  - Privacy policy text.
+- **Later the same evening, at the founder's request:** live checks. The worker fetches Amazon and Walmart pages from the shopper's browser, with no cookies, parses them offscreen (new `offscreen` permission, `store-lookups.ts`, `search-parsers.ts`, `offscreen.ts`), and keeps only exact matches. Proven live: Best Buy MG9575/49 at $96.99 showed "$7.99 less at Walmart". eBay and Best Buy refuse background requests; Target and Costco need scripts. Tests: unit 48/39/7/28, price fixtures 11, live 3. The Amazon and Shopify suites pass; their popup tests failed several times on macOS window focus, then passed repeatedly, and the baseline build behaved the same.
+- **0.3.1 (same night):**
+  - Cheaper seller on the same Amazon page (`amazon-sellers.ts`), live-proven on B008M5U1C2 ("$4.37 less from another seller on Amazon").
+  - Amazon reader accepts the shown price among several purchase modes and reads `#prodDetails`.
+  - Fixture e2e 13/13; live 5/5 (eBay steps skipped: eBay serves its error page to automated browsers).
+  - Packaged as `outputs/checkout-savings-0.3.1`.

@@ -26,4 +26,4 @@ Typecheck 5/5 workspaces. Unit tests, integration (live Postgres + HTTP), browse
 3. **Codes:** source reviewed public, attribution-neutral codes for the first 3–5 stores (merchant pages or merchant approval), plus invite tokens for the tester cohort.
 4. **Real Chrome:** load the beta build in Chrome and confirm the toolbar activeTab flow on Amazon product and order review.
 
-Price tracking and cashback remain explicit stubs. No affiliate revenue or payout ledger is active.
+**Price alerts (October 8 evening, branch `codex/price-compare`, not merged):** "cheaper elsewhere" banner plus a one-time buy-click pause on any store. Proven live: eBay $38.27, then Amazon $39.96, showed "$1.69 less at eBay". See [PRICE-ALERTS.md](docs/PRICE-ALERTS.md). The eBay API connector waits for the founder's keys. Cashback remains an explicit stub. No affiliate revenue or payout ledger is active.
