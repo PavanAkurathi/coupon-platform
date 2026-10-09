@@ -5,7 +5,7 @@ import { parseArgs } from "node:util";
 
 // PLACEHOLDER PRODUCT NAME: the founder has not chosen the final name. Change it here
 // only, before any Web Store listing. Keep it neutral (no merchant, competitor or affiliate wording).
-const PRODUCT_NAME = "Checkout Savings";
+const PRODUCT_NAME = "Hold";
 const DEV_API_ORIGIN = "http://localhost:3001";
 const DEV_PRICE_API_ORIGIN = "http://localhost:3002";
 const ICON_SIZES = [16, 32, 48, 128];

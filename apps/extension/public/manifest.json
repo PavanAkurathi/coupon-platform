@@ -1,16 +1,16 @@
 {
   "manifest_version": 3,
   "name": "__PRODUCT_NAME__",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "minimum_chrome_version": "120",
-  "description": "Community-verified coupons, Amazon offer checks and cheaper-elsewhere price alerts. Your savings stay yours.",
+  "description": "Hold before you buy: warns when the same item is cheaper elsewhere, finds cheaper Amazon sellers and Amazon coupons. Your savings stay yours.",
   "icons": { "16": "icon-16.png", "32": "icon-32.png", "48": "icon-48.png", "128": "icon-128.png" },
   "permissions": ["storage", "activeTab", "scripting", "offscreen"],
   "host_permissions": ["http://localhost/*"],
   "optional_host_permissions": ["https://*/*"],
   "background": { "service_worker": "worker.js", "type": "module" },
   "action": {
-    "default_title": "Find checkout savings", "default_popup": "popup.html",
+    "default_title": "Hold: check before you buy", "default_popup": "popup.html",
     "default_icon": { "16": "icon-16.png", "32": "icon-32.png", "48": "icon-48.png", "128": "icon-128.png" }
   },
   "content_scripts": [{ "matches": ["http://localhost/*"], "js": ["content.js"], "run_at": "document_idle", "all_frames": false }],
