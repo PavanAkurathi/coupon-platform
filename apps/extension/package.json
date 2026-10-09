@@ -13,7 +13,9 @@
     "test:e2e": "bun e2e/smoke.ts",
     "test:e2e:amazon": "bun e2e/amazon-reader.ts && bun e2e/amazon-checkout.ts && bun e2e/amazon-extension.ts",
     "browser:install": "playwright install chromium",
-    "test:e2e:shopify": "bun e2e/shopify-checkout.ts && bun e2e/shopify-extension.ts"
+    "test:e2e:shopify": "bun e2e/shopify-checkout.ts && bun e2e/shopify-extension.ts",
+    "test:e2e:prices": "bun e2e/price-alerts.ts",
+    "test:live:prices": "bun e2e/price-alerts.ts --live"
   },
   "dependencies": {
     "@repo/shared": "workspace:*",

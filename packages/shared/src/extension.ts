@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { centsSchema, couponCodeSchema } from './contracts';
 import { amazonFocusRequestSchema, amazonInspectionSchema, amazonCheckoutInspectionSchema } from './amazon';
 import { shopifyCheckoutInspectionSchema } from './shopify';
+import { pageProductSchema, priceComparisonSchema } from './prices';
 
 export const popupRequestSchema = z.discriminatedUnion('type', [
   amazonFocusRequestSchema,
@@ -9,6 +10,9 @@ export const popupRequestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('run') }).strict(),
   z.object({ type: z.literal('try-code'), code: couponCodeSchema }).strict(),
   z.object({ type: z.literal('save-token'), token: z.string().trim().max(512).regex(/^[A-Za-z0-9._~-]*$/) }).strict(),
+  // The popup requests or removes the optional all-sites permission itself; this syncs the worker.
+  z.object({ type: z.literal('price-alerts'), enabled: z.boolean() }).strict(),
+  z.object({ type: z.literal('price-forget') }).strict(),
 ]);
 export const contentRequestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('inspect') }).strict(),
@@ -31,6 +35,8 @@ export const popupStatusSchema = inspectionSchema.extend({
   amazon: amazonInspectionSchema.optional(),
   amazonCheckout: amazonCheckoutInspectionSchema.optional(),
   shopify: shopifyCheckoutInspectionSchema.optional(),
+  price: z.object({ product: pageProductSchema.nullable(), comparison: priceComparisonSchema.nullable(), reason: z.string().max(300) }).strict().optional(),
+  priceAlerts: z.boolean().optional(),
   supported: z.boolean(), hasToken: z.boolean(), merchantName: z.string().optional(),
   result: trialResultSchema.optional(), reportNote: z.string().optional(),
 }).strict();

@@ -1,5 +1,6 @@
 import { DEMO_ORIGIN, formatMoney, popupStatusSchema, trialResponseSchema, type PopupStatus, type Reply, type TrialResult } from "./protocol";
 import { confirmedEarningsLine } from "@repo/shared";
+import { renderPrice, renderPriceAlerts } from "./price-popup";
 
 function el<T extends HTMLElement>(id: string): T { const node = document.getElementById(id); if (!node) throw new Error(`Missing ${id}`); return node as T; }
 const primary = el<HTMLButtonElement>("try-codes");
@@ -217,6 +218,8 @@ function hideAmazonMode(supported: boolean) {
 
 async function refresh() {
   state = popupStatusSchema.parse(await request({ type: "status" }));
+  const hasPrice = renderPrice(state.price);
+  renderPriceAlerts(state.priceAlerts, refresh);
 
   if (state.amazonCheckout !== undefined) {
     renderCheckoutMode(state.amazonCheckout);
@@ -224,6 +227,10 @@ async function refresh() {
   }
   if (state.amazon !== undefined) {
     renderAmazonMode(state.amazon);
+    // A cheaper exact match elsewhere outranks "no coupon here".
+    if (state.price?.comparison?.status === "better_offer" && state.amazon.status !== "offers_found") {
+      el("headline").textContent = "Wait. It's cheaper elsewhere.";
+    }
     return;
   }
 
@@ -235,6 +242,12 @@ async function refresh() {
   el("token-note").textContent = state.hasToken ? "Shopper token saved. Your reports count once per code. Leave blank and save to remove it." : "Add an issued shopper token to help verify codes. Leave blank and save to remove it.";
   if (!state.result) clearResult();
   if (state.result) { showResult(state.result, state.completed); status(state.reportNote ?? "Your best code is ready."); }
+  else if (!state.supported && hasPrice) {
+    const better = state.price?.comparison?.status === "better_offer";
+    el("headline").textContent = better ? "Wait. It's cheaper elsewhere." : "Price checked.";
+    el("description").textContent = "Coupon codes aren't tested on this store yet.";
+    status("");
+  }
   else if (!state.supported) {
     el("headline").textContent = "Not supported here yet.";
     el("description").textContent = "This page isn't a supported store or checkout.";

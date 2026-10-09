@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { API_ORIGIN, inspectionSchema, popupRequestSchema, resultMatchesCheckout, trialResultSchema, unavailableCheckout, type PopupStatus, type Reply, type TrialResult } from './protocol';
 import { adapterFor } from './adapters/registry';
 import { runApprovedTrial } from './gate';
+import { alertsEnabled, comparisonFor, disablePriceAlerts, forgetProducts, popupPrice, syncPriceAlerts, trustedPageProduct } from './price-worker';
 
 const running = new Set<number>();
 const badgeGenerations = new Map<number, number>();
@@ -187,6 +188,9 @@ async function status(): Promise<PopupStatus> {
     return { ...unavailableCheckout, supported: false, hasToken: Boolean(shopperToken), amazonCheckout };
   }
 
+  // Price comparison runs alongside the coupon checks on any https product page.
+  const pricing = Promise.all([popupPrice(tab), alertsEnabled()]).then(([price, priceAlerts]) => ({ ...(price ? { price } : {}), priceAlerts }));
+
   // Amazon product inspection — before any merchant API calls; no DB dependency.
   const asin = amazonProductAsin(tab.url);
   const amazonPage = tab.url?.startsWith('https://www.amazon.com/');
@@ -202,7 +206,7 @@ async function status(): Promise<PopupStatus> {
       if (amazon.status === 'offers_found') await chrome.action.setBadgeBackgroundColor({ tabId, color: '#215748' });
     }
     // Not stored in session — observations are ephemeral and not verified.
-    return { ...unavailableCheckout, supported: false, hasToken: Boolean(shopperToken), amazon };
+    return { ...unavailableCheckout, supported: false, hasToken: Boolean(shopperToken), amazon, ...await pricing };
   }
 
   const shopifyMerchant = adapterFor(tab.url) ? undefined : await shopifyMerchantFor(tab);
@@ -217,15 +221,16 @@ async function status(): Promise<PopupStatus> {
     const saved = await chrome.storage.session.get(`result:${tabId}`);
     let last = saved[`result:${tabId}`] as { result?: TrialResult; reportNote?: string } | undefined;
     if (last?.result && !resultMatchesCheckout(last.result, checkout)) { last = undefined; await chrome.storage.session.remove(`result:${tabId}`); }
-    return { supported: true, merchantName: shopifyMerchant.name, ...checkout, busy: running.has(tabId), hasToken: Boolean(shopperToken), shopify, ...last };
+    return { supported: true, merchantName: shopifyMerchant.name, ...checkout, busy: running.has(tabId), hasToken: Boolean(shopperToken), shopify, ...last, ...await pricing };
   }
 
-  const merchant = await merchantFor(tab);
+  // The coupon service being offline must not hide a price comparison.
+  const merchant = await merchantFor(tab).catch(async (error: unknown) => { if ((await pricing).price) return undefined; throw error; });
   const checkout = merchant ? await inspect(tabId) : unavailableCheckout;
   const saved = await chrome.storage.session.get(`result:${tabId}`);
   let last = saved[`result:${tabId}`] as { result?: TrialResult; reportNote?: string } | undefined;
   if (last?.result && !resultMatchesCheckout(last.result, checkout)) { last = undefined; await chrome.storage.session.remove(`result:${tabId}`); }
-  return { supported: Boolean(merchant), merchantName: merchant?.name, ...checkout, busy: running.has(tabId) || checkout.busy, hasToken: Boolean(shopperToken), ...last };
+  return { supported: Boolean(merchant), merchantName: merchant?.name, ...checkout, busy: running.has(tabId) || checkout.busy, hasToken: Boolean(shopperToken), ...last, ...await pricing };
 }
 
 async function focusAmazon(data: AmazonFocusRequest): Promise<{ focused: true }> {
@@ -317,6 +322,14 @@ async function run(code?: string): Promise<{ result: TrialResult; reportNote: st
 chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;
   if (sender.tab) {
+    if ((raw as { type?: unknown } | null)?.type === 'price-seen') {
+      const product = trustedPageProduct(raw, sender);
+      if (!product) { sendResponse({ ok: false, error: 'Invalid product.' }); return false; }
+      // Every https page can report a product once alerts are on; comparisons stay in this browser.
+      comparisonFor(sender.tab.id!, product).then((data) => sendResponse({ ok: true, data }))
+        .catch(() => sendResponse({ ok: false, error: 'Price check failed.' }));
+      return true;
+    }
     if (sender.frameId === 0 && adapterFor(sender.url) && checkoutReadySchema.safeParse(raw).success) {
       void badge(sender.tab).catch(() => undefined);
     }
@@ -331,6 +344,8 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
     if (data.type === 'run') return run();
     if (data.type === 'try-code') return run(data.code);
     if (data.type === 'amazon-focus') return focusAmazon(data);
+    if (data.type === 'price-alerts') return { enabled: data.enabled ? await syncPriceAlerts() : await disablePriceAlerts() };
+    if (data.type === 'price-forget') { await forgetProducts(); return { forgotten: true }; }
     await secureStorage;
     if (data.token) await chrome.storage.local.set({ shopperToken: data.token });
     else await chrome.storage.local.remove('shopperToken');
@@ -351,3 +366,7 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
 });
 chrome.tabs.onRemoved.addListener((tabId) => { badgeGenerations.delete(tabId); running.delete(tabId); void chrome.storage.session.remove(`result:${tabId}`); });
 chrome.runtime.onInstalled.addListener(() => { void chrome.tabs.query({}).then((tabs) => Promise.all(tabs.map(badge))).catch(() => undefined); });
+// Keep the all-sites price script in step with the permission, including removal in Chrome settings.
+for (const event of [chrome.runtime.onInstalled, chrome.runtime.onStartup, chrome.permissions.onAdded, chrome.permissions.onRemoved]) {
+  event.addListener(() => { void syncPriceAlerts().catch(() => undefined); });
+}
