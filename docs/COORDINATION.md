@@ -165,6 +165,51 @@ The founder supplied codes in chat. They were used for observation only and are 
 - **Integration note:** the coordinator ran `bun run build` in `apps/extension` once by mistake, which rewrote the founder's installed `dist`. That build was later confirmed byte-identical to the final verified build. Chrome picks it up on the next extension reload.
 - **Not done:** enabling Allbirds in the beta database, and reviewed public codes with source evidence. Both are founder/operator decisions.
 
+## October 8 evening: price alerts (coordinator, while Codex is at its usage limit)
+
+Codex started the founder's cross-store price packet at 7:16 PM ([packet](../../CODEX-PRICE-PACKET.md)) and hit its usage limit at 7:19 PM, before its three helpers ran; it resets at 10:21 PM. The founder re-sent the request to the Claude coordinating session, which built the feature in this worktree (branch `codex/price-compare`, uncommitted, not merged into `coupon-platform`, nothing installed or deployed). Details and evidence: [PRICE-ALERTS.md](PRICE-ALERTS.md).
+
+- **Shared:** `prices.ts` replaces Codex's 73-line draft, keeping its fail-closed design. It adds GTIN/model normalization, exact matching, `compareOffers` and the `priceOffers*` wire contract. `extension.ts` gains the `price-alerts`/`price-forget` popup requests and the `price`/`priceAlerts` status fields.
+- **Price service:** the stub was replaced with `POST /v1/prices/offers`, an eBay Browse connector, a reviewed feed and a 10-minute cache.
+- **Extension:**
+  - New files: `product-reader.ts`, `price-content.ts`, `price-worker.ts` and `price-popup.ts`.
+  - Worker and popup are wired up.
+  - The manifest gains the optional `https://*/*` permission.
+  - Build adds the `price-content` entry and `PRICE_API_ORIGIN`.
+- **Tests:** passed as listed in PRICE-ALERTS.md, including the live eBay→Amazon alert and pause. The demo smoke test and the eBay API live were not run.
+- **For Codex on return:** please review rather than restart this packet. Open items:
+  - eBay live verification once the founder adds keys.
+  - Best Buy connector.
+  - Hosting the price service next to `couponapi`, which needs founder approval.
+  - Privacy policy text.
+- **Later the same evening, at the founder's request:** live checks. The worker fetches Amazon and Walmart pages from the shopper's browser, with no cookies, parses them offscreen (new `offscreen` permission, `store-lookups.ts`, `search-parsers.ts`, `offscreen.ts`), and keeps only exact matches. Proven live: Best Buy MG9575/49 at $96.99 showed "$7.99 less at Walmart". eBay and Best Buy refuse background requests; Target and Costco need scripts. Tests: unit 48/39/7/28, price fixtures 11, live 3. The Amazon and Shopify suites pass; their popup tests failed several times on macOS window focus, then passed repeatedly, and the baseline build behaved the same.
+- **0.3.1 (same night):**
+  - Cheaper seller on the same Amazon page (`amazon-sellers.ts`), live-proven on B008M5U1C2 ("$4.37 less from another seller on Amazon").
+  - Amazon reader accepts the shown price among several purchase modes and reads `#prodDetails`.
+  - Fixture e2e 13/13; live 5/5 (eBay steps skipped: eBay serves its error page to automated browsers).
+  - Packaged as `outputs/checkout-savings-0.3.1`.
+
+## October 9 morning: 0.3.2 (coordinator)
+
+The founder's real Chrome showed no alert on Best Buy MG9575/49 ($99.99) although Amazon had it for $96.49. There were two causes, and both are fixed.
+
+**1. The background Amazon check skipped pages with several purchase modes** (new $96.49 / used $81.23). For those pages, Amazon's offer list (`aodAjaxMain`) now names the buy box. Files: `store-lookups.ts`, `offscreen.ts`, and `product-reader.ts` (`Page.buyBoxCents`).
+
+**2. Codex's 9:20 AM hardening** was left unfinished by its usage limit and committed mid-edit in 99e25a8. It blocked matching and reading in four ways; this is what changed:
+- **Variant rule:** a variant on one side and none on the other now passes when the exact model codes match. Two stated variants must still agree (token containment: "Matte Black" matches "Black"; "Steel" does not match "Silver").
+- **Amazon and Walmart colour fields:** no longer used, because colour names differ between stores.
+- **JSON-LD price check:** falls back to the visible-price check when a page has no microdata Product scope (Best Buy).
+- **Product URL matching:** a single JSON-LD Product is accepted, and URL matching is lenient again.
+- **Kept from Codex:** the restricted-offer filter, the model and brand conflict checks, the strict shipping details, `InStoreOnly` treated as not purchasable, the abortable live checks and the v2 cache.
+- **Popup:** says "Turn on price alerts" when the live-store permission is missing.
+
+**Tests:**
+- Shared 50/50 and extension unit 39/39; price fixture e2e passes my 13 checks.
+- Live 4/4: Best Buy → "$3.50 less at Amazon"; the knife correctly stays quiet because Amazon.com is $47.00 and only used offers are cheaper.
+- Codex's new e2e "cached offer before slow sources" fails because its feature isn't implemented yet. Left for Codex (back at 2:13 PM).
+
+**Install:** built from a clean HEAD copy plus these files (excluding the checkout-tips session's in-progress files), installed into `coupon-platform/apps/extension/dist` and packaged as `outputs/checkout-savings-0.3.2`.
+
 ## October 10 return / integration packet (I3 — Codex, in progress)
 
 - Review Claude's committed backend/shared and Shopify changes; preserve extension ownership and the existing installed builds and archives. Extension findings go through a handoff.
@@ -173,3 +218,38 @@ The founder supplied codes in chat. They were used for observation only and are 
 - Results, remaining risks and cross-owner requests will be recorded before handoff.
 - **I3-B — Codex, completed:** short forwarding chains cannot bypass the configured trusted proxy depth. A failing regression preceded the fix; 29 backend unit tests (95 assertions) and the backend typecheck passed. Current hosted configuration leaves the forwarded header unset, so this repairs the optional proxy path.
 - **C6 — Claude Code, assigned:** fix the three reproduced Shopify trial safety defects in [the bounded handoff](CLAUDE-SHOPIFY-SAFETY-HANDOFF.md). Only the adapter and its existing fixture suite are assigned. Equal-subtotal cart identity needs a later coordinated contract; no claims of full cart identity protection.
+
+## October 10 night: 0.4.3 accuracy fixes (Claude)
+
+Fixes for the three accuracy failures in [COVERAGE.md](COVERAGE.md). Built from the exact 0.4.2 tree plus this diff, packaged in `outputs/hold-0.4.3`, installed in `coupon-platform/apps/extension/dist`. Nothing committed or submitted.
+
+- **Open box read as new (Walmart reader).** An item counts as new only when every signal agrees: `conditionType` is New, `isConditionNew` is true, `conditionV2` (when present) is group 1 "New", and the name has no condition marker. Live 11384707978 now reads as refurbished. The schema.org and Amazon readers already apply the title markers. Amazon also reads a page that features a used offer (`#usedBuySection`) as used.
+- **Bundles: a shared contract change, additive, for Codex review.**
+  - `prices.ts` gains `sameBundle(a, b)`.
+  - `comparableOffers` now also requires both titles to carry the same bundle markers: bundle, protection plan/pack, extended or accident warranty/protection, AppleCare.
+  - Every offer source passes through this check, and it applies in both directions.
+- **Amazon pages with two purchase-mode prices.**
+  - Fetched pages take the new price from Amazon's own "Buy New" row (`[data-a-accordion-row-name="newAccordionRow"]`), observed on B0DGJ7HYG1 and B00006JSUA. Without that row, the offer-list path is unchanged.
+  - The worker console now logs each candidate a live check sets aside: `Hold live check (Store): <url> not used: <why>`. This includes offer-list failures, which used to drop the read silently.
+- **What happened on #12 and #18.** This corrects item 4 of COVERAGE.md "What failed".
+  - **#18:** the in-run read succeeded through the offer list. The match was refused because Amazon's model is L8SK3PLT and Walmart's is L8SK3, with the same UPC (075536300801). `sameProduct` lets conflicting models veto a UPC match. **Open question for Codex and the founder.**
+  - **#12:** for anonymous visitors, Amazon switches between two versions of the page: new $116.99 plus used, or one that features a used offer at $111.14. The in-run fetch most likely got the second (read as used, so no offer-list request).
+- **Tests:**
+  - Shared 51/51 and extension unit 50/50, including the new `store-lookups.test.ts`.
+  - New `e2e/price-readers.ts`: 6/6, run on 7 trimmed live fixtures. 5 of its checks failed on 0.4.2.
+  - Price-alert fixture e2e: 13 checks pass. "cached offer before slow sources" still fails, as it does on 0.4.2.
+- **Live check** (0.4.3 Chrome build, Playwright):
+  - #12: no alert. Walmart logged "condition refurbished, not new"; Amazon logged "condition used, not new".
+  - #18: the Amazon page was read; the log says "model L8SK3PLT, not L8SK3".
+
+## October 11: one trunk (Claude, at the founder's request)
+
+- `main` now carries everything: Codex's I3 (committed as a469367), and the `codex/price-compare` line merged in.
+  That line holds the price alerts and the Hold rename (0.3.x), the store release (0.4.0), 0.4.1 (no shopper token in store builds), 0.4.2 (Best Buy price-match tip), 0.4.3 (accuracy fixes), the docs, and the UPC-vs-model-suffix rule.
+- Each 0.4.x commit was built from that release's exact source tree. Rebuilding the 0.4.3 commit with `release.ts --ref` gives Chrome and Firefox files identical to `outputs/hold-0.4.3`.
+- Not merged:
+  - the checkout-tips work in progress: uncommitted in `outputs/coupon-price-compare`, owned by its session;
+  - `codex/price-speed`: Codex's uncommitted speed work, for Codex to rebase.
+- **For Codex to review** (shared contract):
+  - `sameBundle` in `comparableOffers` (0.4.3);
+  - the UPC-suffix exception in `sameProduct` (3d88c2b, founder decision October 11; not in a release yet).

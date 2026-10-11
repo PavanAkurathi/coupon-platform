@@ -4,3 +4,4 @@ export * from './extension';
 export * from './coupon-policy';
 export * from './amazon';
 export * from './shopify';
+export * from './prices';

@@ -1,10 +1,14 @@
-import { DEMO_ORIGIN, formatMoney, popupStatusSchema, trialResponseSchema, type PopupStatus, type Reply, type TrialResult } from "./protocol";
+import { BUILD_TARGET, DEMO_ORIGIN, formatMoney, popupStatusSchema, trialResponseSchema, type PopupStatus, type Reply, type TrialResult } from "./protocol";
 import { confirmedEarningsLine } from "@repo/shared";
+import { renderPrice, renderPriceAlerts } from "./price-popup";
 
 function el<T extends HTMLElement>(id: string): T { const node = document.getElementById(id); if (!node) throw new Error(`Missing ${id}`); return node as T; }
 const primary = el<HTMLButtonElement>("try-codes");
 const testCode = el<HTMLButtonElement>("test-code");
 const statusLine = el("status");
+// Shopper tokens and shared codes need a token issued by the operator. Store builds leave them out:
+// nobody outside the beta can get one, so the fields could never work there.
+const COMMUNITY = BUILD_TARGET === "dev";
 let state: PopupStatus | undefined;
 let busy = false;
 async function request<T>(message: unknown): Promise<T> {
@@ -206,8 +210,8 @@ function hideAmazonMode(supported: boolean) {
   // Trial controls and their verification claims only appear on a supported checkout.
   el("try-codes").hidden = !supported;
   el("trust-row").hidden = !supported;
-  el("code-section").hidden = !supported;
-  el("token-section").hidden = false;
+  el("code-section").hidden = !supported || !COMMUNITY;
+  el("token-section").hidden = !COMMUNITY;
   el("env-pill").textContent = "LOCAL DEMO";
   el("env-pill").hidden = !supported || !DEMO_ORIGIN;
   el("headline").replaceChildren(document.createTextNode("Good codes."), document.createElement("br"), document.createTextNode("Better totals."));
@@ -217,6 +221,8 @@ function hideAmazonMode(supported: boolean) {
 
 async function refresh() {
   state = popupStatusSchema.parse(await request({ type: "status" }));
+  const hasPrice = renderPrice(state.price);
+  renderPriceAlerts(state.priceAlerts, refresh);
 
   if (state.amazonCheckout !== undefined) {
     renderCheckoutMode(state.amazonCheckout);
@@ -224,6 +230,10 @@ async function refresh() {
   }
   if (state.amazon !== undefined) {
     renderAmazonMode(state.amazon);
+    // A cheaper exact match elsewhere outranks "no coupon here".
+    if (state.price?.comparison?.status === "better_offer" && state.amazon.status !== "offers_found") {
+      el("headline").textContent = "Wait. It's cheaper elsewhere.";
+    }
     return;
   }
 
@@ -235,10 +245,16 @@ async function refresh() {
   el("token-note").textContent = state.hasToken ? "Shopper token saved. Your reports count once per code. Leave blank and save to remove it." : "Add an issued shopper token to help verify codes. Leave blank and save to remove it.";
   if (!state.result) clearResult();
   if (state.result) { showResult(state.result, state.completed); status(state.reportNote ?? "Your best code is ready."); }
+  else if (!state.supported && hasPrice) {
+    const better = state.price?.comparison?.status === "better_offer";
+    el("headline").textContent = better ? "Wait. It's cheaper elsewhere." : "Price checked.";
+    el("description").hidden = true;
+    status("");
+  }
   else if (!state.supported) {
     el("headline").textContent = "Not supported here yet.";
-    el("description").textContent = "This page isn't a supported store or checkout.";
-    status(localDemo ? "Try the local demo checkout or open an Amazon product page." : "Open an Amazon.com product page or order review to check coupons.");
+    el("description").textContent = "Hold didn't find a product on this page.";
+    status(localDemo ? "Try the local demo checkout or open an Amazon product page." : "Open a product page to compare its price, or an Amazon.com product page to check coupons.");
   }
   else if (state.shopify?.appliedCodes.length) status(`${state.shopify.appliedCodes.join(", ")} is already applied. We leave existing codes in place.`);
   else if (state.shopify && !state.checkout) status(state.shopify.reason || "Open the checkout and wait for the order summary to load.");

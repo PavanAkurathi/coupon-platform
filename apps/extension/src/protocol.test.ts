@@ -16,7 +16,10 @@ describe("extension trust boundaries", () => {
   });
   test("permission surface excludes cookie and redirect APIs", () => {
     for (const permission of ["cookies", "webRequest", "webRequestBlocking", "declarativeNetRequest", "tabs"]) expect(manifest.permissions).not.toContain(permission);
-    expect(manifest.permissions).toEqual(["storage", "activeTab", "scripting"]);
+    // offscreen: parsing store pages fetched for price checks (no DOMParser in the worker).
+    expect(manifest.permissions).toEqual(["storage", "activeTab", "scripting", "offscreen"]);
+    // Every-store price alerts are opt-in: requested from the popup, revocable in Chrome.
+    expect(manifest.optional_host_permissions).toEqual(["https://*/*"]);
     expect(manifest.content_scripts.flatMap((entry) => entry.matches)).toEqual(["http://localhost/*"]);
     expect(manifest.host_permissions).toEqual(["http://localhost/*"]);
   });

@@ -26,3 +26,17 @@ Decided October 8, 2026: the coupon service for the private beta runs on Neon. P
 ## Before a public launch
 
 Neon gives each function a public URL with an account-wide cap of 100 concurrent invocations and documents no client-IP header or WAF. Put a Cloudflare Worker you control in front: edge rate limits, a shared `X-Secret` to the native URL, and `CLIENT_IP_HEADER=cf-connecting-ip` once the Worker forwards it. Per-shopper report limits already key on the verified token.
+
+## Price service (`priceapi`)
+
+**Deployed October 9 with founder approval:** function `priceapi`, deployment 1, Node 24, on branch `main`, same project. URL: `https://br-proud-breeze-b7ufxibk-priceapi.compute.c-13.us-east-1.aws.neon.tech`. It has no database; offers are cached in memory per instance.
+
+- **Build:** `bun run --cwd services/price-service build:function` writes `dist/function/index.mjs`.
+- **Deploy:** `bunx neonctl@8.0.12 functions deploy priceapi --project-id solitary-forest-72896186 --branch main --src services/price-service/dist/function --no-bundle --runtime nodejs24 --env PRICE_RATE_LIMIT_PER_MINUTE=600`.
+- **eBay keys:** once the founder's eBay keyset exists, add `--env EBAY_CLIENT_ID=… --env EBAY_CLIENT_SECRET=…` from `services/price-service/.env`. Never paste them into chat or docs. Until then, coverage reports `ebay_api: not_configured`.
+- **Verified from outside, October 9:**
+  - `/health` returns ok.
+  - Extension origins get CORS; others don't. Invalid identities get 400, and unknown routes 404.
+  - HSTS and nosniff are set.
+  - From inside the built extension (Chromium), the worker reaches `priceapi` and `couponapi /v1/merchants`, and CSP blocks other hosts.
+- **Extension:** `COUPON_API_ORIGIN=<couponapi> PRICE_API_ORIGIN=<priceapi> bun run --cwd apps/extension build:beta`, packaged as `outputs/checkout-savings-0.3.4` and installed in the founder's Chrome folder.
