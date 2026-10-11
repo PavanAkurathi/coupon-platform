@@ -209,3 +209,26 @@ The founder's real Chrome showed no alert on Best Buy MG9575/49 ($99.99) althoug
 - Codex's new e2e "cached offer before slow sources" fails because its feature isn't implemented yet. Left for Codex (back at 2:13 PM).
 
 **Install:** built from a clean HEAD copy plus these files (excluding the checkout-tips session's in-progress files), installed into `coupon-platform/apps/extension/dist` and packaged as `outputs/checkout-savings-0.3.2`.
+
+## October 10 night: 0.4.3 accuracy fixes (Claude)
+
+Fixes for the three accuracy failures in [COVERAGE.md](COVERAGE.md). Built from the exact 0.4.2 tree plus this diff, packaged in `outputs/hold-0.4.3`, installed in `coupon-platform/apps/extension/dist`. Nothing committed or submitted.
+
+- **Open box read as new (Walmart reader).** An item counts as new only when every signal agrees: `conditionType` is New, `isConditionNew` is true, `conditionV2` (when present) is group 1 "New", and the name has no condition marker. Live 11384707978 now reads as refurbished. The schema.org and Amazon readers already apply the title markers. Amazon also reads a page that features a used offer (`#usedBuySection`) as used.
+- **Bundles: a shared contract change, additive, for Codex review.**
+  - `prices.ts` gains `sameBundle(a, b)`.
+  - `comparableOffers` now also requires both titles to carry the same bundle markers: bundle, protection plan/pack, extended or accident warranty/protection, AppleCare.
+  - Every offer source passes through this check, and it applies in both directions.
+- **Amazon pages with two purchase-mode prices.**
+  - Fetched pages take the new price from Amazon's own "Buy New" row (`[data-a-accordion-row-name="newAccordionRow"]`), observed on B0DGJ7HYG1 and B00006JSUA. Without that row, the offer-list path is unchanged.
+  - The worker console now logs each candidate a live check sets aside: `Hold live check (Store): <url> not used: <why>`. This includes offer-list failures, which used to drop the read silently.
+- **What happened on #12 and #18.** This corrects item 4 of COVERAGE.md "What failed".
+  - **#18:** the in-run read succeeded through the offer list. The match was refused because Amazon's model is L8SK3PLT and Walmart's is L8SK3, with the same UPC (075536300801). `sameProduct` lets conflicting models veto a UPC match. **Open question for Codex and the founder.**
+  - **#12:** for anonymous visitors, Amazon switches between two versions of the page: new $116.99 plus used, or one that features a used offer at $111.14. The in-run fetch most likely got the second (read as used, so no offer-list request).
+- **Tests:**
+  - Shared 51/51 and extension unit 50/50, including the new `store-lookups.test.ts`.
+  - New `e2e/price-readers.ts`: 6/6, run on 7 trimmed live fixtures. 5 of its checks failed on 0.4.2.
+  - Price-alert fixture e2e: 13 checks pass. "cached offer before slow sources" still fails, as it does on 0.4.2.
+- **Live check** (0.4.3 Chrome build, Playwright):
+  - #12: no alert. Walmart logged "condition refurbished, not new"; Amazon logged "condition used, not new".
+  - #18: the Amazon page was read; the log says "model L8SK3PLT, not L8SK3".
