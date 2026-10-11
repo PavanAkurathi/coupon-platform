@@ -1,6 +1,7 @@
 import { priceComparisonSchema, type PageProduct, type PriceComparison } from '@repo/shared';
 import { amazonBuyBox, readProductPage, type ProductRead } from './product-reader';
 import { findCheaperSeller, type CheaperSeller } from './amazon-sellers';
+import { matchTip, type MatchTip } from './price-match';
 
 // Runs in this extension's isolated world on https pages: injected when the popup
 // opens, or registered for every https site once the shopper turns on price alerts.
@@ -16,7 +17,7 @@ const BUY_CONTROLS: Record<string, string> = {
 };
 const HOST_ID = 'checkout-savings-price-alert';
 // What the banner and pause show: a cheaper store, or a cheaper seller on this Amazon page.
-type Alert = { savingsCents: number; headline: string; compare: string; meta: string; fine: string; url: string; viewLabel: string; goLabel: string };
+type Alert = { savingsCents: number; headline: string; compare: string; meta: string; fine: string; url: string; viewLabel: string; goLabel: string; match?: MatchTip | null };
 type State = { url: string; product?: PageProduct; alert?: Alert; paused: boolean; dismissed: boolean };
 const scope = globalThis as typeof globalThis & { __checkoutSavingsPriceV1?: boolean };
 
@@ -28,7 +29,7 @@ function age(iso: string): string {
   return `${Math.round(minutes / 60)} h ago`;
 }
 const shippingText = (cents: number | null) => cents === 0 ? 'Free shipping' : `+ ${money(cents ?? 0)} shipping`;
-function storeAlert(comparison: PriceComparison): Alert {
+function storeAlert(comparison: PriceComparison, product: PageProduct): Alert {
   const offer = comparison.bestOffer!;
   const seen = offer.source === 'seen_by_you' ? `You saw it ${age(offer.observedAt)}` : offer.source === 'live_check' ? `Checked live ${age(offer.observedAt)}` : `Checked ${age(offer.observedAt)}`;
   return {
@@ -37,6 +38,8 @@ function storeAlert(comparison: PriceComparison): Alert {
     meta: ['New', shippingText(offer.shippingCents), offer.seller ? `Seller: ${offer.seller}` : null, seen].filter(Boolean).join(' · '),
     fine: 'Same model, new condition. Prices before tax; confirm the total at checkout.',
     url: offer.url, viewLabel: `View on ${offer.merchant} ↗`, goLabel: `Go to ${offer.merchant} ↗`,
+    // Prefer buying here? This store may match that price (docs/PRICE-MATCH.md).
+    match: matchTip(product, offer),
   };
 }
 function sellerAlert(found: CheaperSeller, asin: string): Alert {
@@ -73,7 +76,9 @@ if (window === window.top && location.protocol === 'https:' && !scope.__checkout
       a,button{font-size:13px;font-weight:600;border-radius:7px;padding:9px 12px;cursor:pointer;text-decoration:none;border:1px solid #245849}
       a{background:#245849;color:#fff}button{background:transparent;color:#245849}
       .modal{position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(20,28,24,.55);display:grid;place-items:center}
-      .modal .card{width:380px;border-left-width:5px}`;
+      .modal .card{width:380px;border-left-width:5px}
+      .match{font-size:12px;line-height:1.45;color:#243d35;background:#f3efe6;border-radius:7px;padding:8px 10px;margin:0 0 10px}
+      .match a{display:inline;background:none;border:0;padding:0;border-radius:0;color:#245849;font-size:12px;font-weight:600;text-decoration:underline}`;
     root.append(style);
     document.documentElement.append(host);
     return root;
@@ -89,6 +94,13 @@ if (window === window.top && location.protocol === 'https:' && !scope.__checkout
       ['eyebrow', eyebrow], ['big', alert.headline], ['meta', alert.compare], ['meta', alert.meta], ['fine', alert.fine],
     ];
     for (const [className, text] of lines) { const p = document.createElement('p'); p.className = className; p.textContent = text; box.append(p); }
+    if (alert.match) {
+      const tip = document.createElement('p'); tip.className = 'match';
+      const policy = document.createElement('a');
+      policy.href = alert.match.url; policy.target = '_blank'; policy.rel = 'noopener noreferrer'; policy.textContent = alert.match.checked;
+      tip.append(`${alert.match.text} `, policy);
+      box.append(tip);
+    }
     return box;
   }
   function showBanner(alert: Alert) {
@@ -137,7 +149,7 @@ if (window === window.top && location.protocol === 'https:' && !scope.__checkout
     try {
       const reply: { ok: boolean; data?: unknown } | undefined = await chrome.runtime.sendMessage({ type: 'price-seen', product });
       const parsed = priceComparisonSchema.safeParse(reply?.ok ? reply.data : null);
-      return parsed.success && parsed.data.status === 'better_offer' ? storeAlert(parsed.data) : null;
+      return parsed.success && parsed.data.status === 'better_offer' ? storeAlert(parsed.data, product) : null;
     } catch { return null; }
   }
   async function check(read: ProductRead) {

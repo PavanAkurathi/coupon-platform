@@ -1,5 +1,6 @@
 import type { PriceComparison, PriceCoverage } from "@repo/shared";
 import { formatMoney, type PopupStatus } from "./protocol";
+import { matchTip } from "./price-match";
 
 // Price comparison card in the popup. Shown on any product page the reader
 // recognizes, alongside (not instead of) the coupon panels.
@@ -25,6 +26,7 @@ export function renderPrice(price: Price | undefined): boolean {
   const panel = el("price-panel");
   const link = el<HTMLAnchorElement>("price-link");
   link.hidden = true; link.removeAttribute("href");
+  el("price-match").hidden = true;
   if (!price) { panel.hidden = true; return false; }
   panel.hidden = false;
   const { product, comparison } = price;
@@ -45,6 +47,13 @@ export function renderPrice(price: Price | undefined): boolean {
     el("price-meta").textContent = `${formatMoney(offer.priceCents)} + ${shipping} vs ${formatMoney(comparison.baselineCents!)} here. New${offer.seller ? ` · seller ${offer.seller}` : ""} · ${seen}.`;
     link.href = offer.url; link.hidden = false;
     el("price-link-text").textContent = `View on ${offer.merchant}`;
+    const tip = matchTip(product, offer);
+    if (tip) {
+      el("price-match-text").textContent = `${tip.text} `;
+      const policy = el<HTMLAnchorElement>("price-match-link");
+      policy.href = tip.url; policy.textContent = tip.checked;
+      el("price-match").hidden = false;
+    }
   } else {
     el("price-headline").textContent = comparison.status === "no_better_offer" ? `${formatMoney(product.priceCents)} is the best price we found.` : `${formatMoney(product.priceCents)} at ${product.merchant}`;
     el("price-meta").textContent = comparison.reason;
