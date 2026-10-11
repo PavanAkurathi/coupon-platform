@@ -165,8 +165,12 @@ export function variantsCompatible(a: string, b: string): boolean {
 }
 export function sameProduct(a: ProductIdentity, b: ProductIdentity): boolean {
   if (a.condition === 'unknown' || a.condition !== b.condition || a.packQuantity !== b.packQuantity) return false;
-  // Conflicting facts must never disappear behind a matching (possibly mistyped) GTIN.
-  if (a.model && b.model && a.model !== b.model) return false;
+  // Conflicting facts must never disappear behind a matching (possibly mistyped) GTIN,
+  // with one exception: a store suffix on the same model code (October 10, 2026: Lodge's
+  // skillet is L8SK3 at Walmart and L8SK3PLT at Amazon, same UPC) when the UPCs agree and
+  // both brands are stated and compatible.
+  if (a.model && b.model && a.model !== b.model && !(a.gtin && a.gtin === b.gtin && a.brand && b.brand
+    && brandsCompatible(a.brand, b.brand) && (a.model.startsWith(b.model) || b.model.startsWith(a.model)))) return false;
   if (a.brand && b.brand && !brandsCompatible(a.brand, b.brand)) return false;
   if (a.variant && b.variant && !variantsCompatible(a.variant, b.variant)) return false;
   if (a.gtin && b.gtin) return a.gtin === b.gtin;

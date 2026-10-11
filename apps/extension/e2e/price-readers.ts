@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import { sameProduct } from '@repo/shared';
 
 // Store pages that live checks fetch, parsed exactly as the extension parses them
 // (parse-html.ts in a real Chromium DOMParser, no layout). Fixtures are live pages
@@ -67,6 +68,13 @@ try {
     const result = await read(amazonLodge, await fixture('amazon-lodge-new-and-used'), await fixture('amazon-lodge-offers'));
     assert.equal(result.status, 'product', result.reason);
     assert.deepEqual([result.product!.priceCents, result.product!.identity.condition, result.product!.identity.model], [2490, 'new', 'L8SK3PLT']);
+  });
+  // Coverage product #18: the same UPC, with the model code L8SK3 at Walmart and L8SK3PLT at Amazon.
+  await check('Lodge: Walmart L8SK3 and Amazon L8SK3PLT with the same UPC are the same product', async () => {
+    const walmart = await read(walmartLodge, await fixture('walmart-lodge-skillet'));
+    const amazon = await read(amazonLodge, await fixture('amazon-lodge-new-and-used'), await fixture('amazon-lodge-offers'));
+    assert.equal(walmart.product!.identity.gtin, amazon.product!.identity.gtin);
+    assert.ok(sameProduct(walmart.product!.identity as never, amazon.product!.identity as never));
   });
   await check('Amazon: a page that features a used offer ($111.14) reads as used, never new', async () => {
     const result = await read(amazonAirPods, await fixture('amazon-airpods4-used-featured'));

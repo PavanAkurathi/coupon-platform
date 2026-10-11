@@ -148,3 +148,18 @@ test('offers and comparisons reject inconsistent data', () => {
   expect(priceComparisonSchema.safeParse({...compareOffers(amazon, [], {now}), savingsCents: 100}).success).toBe(false);
   expect(pageProductSchema.safeParse({...amazon, identity: {...amazon.identity, model: 'All In One', gtin: null}}).success).toBe(false);
 });
+
+test('a matching UPC outweighs a store suffix on the model code, and nothing else', () => {
+  // October 10, 2026: Lodge's 10.25 in. skillet is L8SK3 at Walmart and L8SK3PLT at Amazon, same UPC.
+  const walmart = { brand: 'Lodge', model: 'L8SK3', gtin: '00075536300801', variant: null, packQuantity: 1, condition: 'new' as const };
+  const amazon = { ...walmart, model: 'L8SK3PLT' };
+  expect(sameProduct(walmart, amazon)).toBe(true);
+  expect(sameProduct(amazon, walmart)).toBe(true);
+  // A different model that is not a suffix still conflicts, UPC or not.
+  expect(sameProduct(walmart, { ...walmart, model: 'L10SK3' })).toBe(false);
+  // The suffix alone is never enough: the UPC must match and both brands must be stated and agree.
+  expect(sameProduct(walmart, { ...amazon, gtin: null })).toBe(false);
+  expect(sameProduct(walmart, { ...amazon, gtin: '00075536300818' })).toBe(false);
+  expect(sameProduct(walmart, { ...amazon, brand: null })).toBe(false);
+  expect(sameProduct(walmart, { ...amazon, brand: 'Victoria' })).toBe(false);
+});
