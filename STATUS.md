@@ -4,7 +4,7 @@ Updated October 11, 2026. **Usable local prototype; not ready to claim Honey/Rak
 
 ## Current source and installed version
 
-- `main` includes Claude's merge at `dcf77fe`: price comparisons, Hold 0.4.0–0.4.3, Codex I3 and the UPC-suffix rule. The new companion packet is a local working-tree change on top.
+- `main` includes Claude's merge at `dcf77fe`: price comparisons, Hold 0.4.0–0.4.3, Codex I3 and the UPC-suffix rule. The companion packet is saved in local commit `fe7b3cd` as **0.5.0 preview**; no push or deployment.
 - The founder's installed extension remains **0.4.3** in `apps/extension/dist`. This packet did not rebuild that folder, alter archives, install an extension or deploy anything.
 - `codex/price-speed` still has unmerged work. Checkout tips in `coupon-price-compare` belong to another session. Neither worktree was changed here.
 
@@ -23,7 +23,8 @@ Updated October 11, 2026. **Usable local prototype; not ready to claim Honey/Rak
 - Six workspace typechecks passed.
 - 153 unit/build tests passed, including Chrome and Firefox scratch builds.
 - 16 companion browser checks passed: empty state, persistent operations, import validation, mobile width, unavailable services, MV3 messaging, active-page save, updated history and content-script denial. Synthetic fixtures only; no live merchant traffic or purchased orders.
-- No fresh 50-product coverage run, hosted API verification, database integration run or full store-release/Mozilla lint run was performed for this packet. Existing price-speed behavior remains unresolved. No new live-support claims.
+- Preview packages were built from commit `fe7b3cd` in `apps/extension/release/0.5.0-preview`: Chrome, Firefox and source ZIPs plus SHA256SUMS. Firefox rebuilt byte-for-byte from the source ZIP. Mozilla lint reported zero errors and 10 warnings, recorded in `RELEASE.txt`; this is not store approval.
+- No fresh 50-product coverage run, hosted API verification or database integration run was performed for this packet. Existing price-speed behavior remains unresolved. No new live-support claims.
 
 ## What determines whether this is worth continuing
 
