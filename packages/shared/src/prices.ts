@@ -188,17 +188,30 @@ export const PRICE_EVIDENCE_MAX_AGE_MS = 15 * 60 * 1000;
 export const MIN_ALERT_SAVINGS_CENTS = 100;
 export type CompareOptions = { now?: Date; minSavingsCents?: number; maxAgeMs?: number; coverage?: PriceCoverage[] };
 
+// Extras sold with an item (a protection plan, a case) keep its UPC and model, so only
+// titles tell them apart. October 10, 2026: Walmart's "Sony WH1000XM5/B ... Bundle with
+// Premium 2 YR CPS Enhanced Protection Pack, Deco Gear Headphone Case ..." matched Best
+// Buy's plain WH-1000XM5 by UPC and model. Kept narrow, like the eBay source's filter.
+const BUNDLE_MARKERS = /\b(bundle[ds]?|protection (?:plan|pack)|(?:extended|accident(?:al)?) (?:warranty|protection)|applecare)\b/gi;
+function bundleMarkers(title: string): string[] {
+  return [...new Set([...title.matchAll(BUNDLE_MARKERS)].map((match) => /^bundle/i.test(match[1]!) ? 'bundle' : 'protection plan'))].sort();
+}
+// A bundle and the bare item are different purchases, whichever side is the bundle.
+export function sameBundle(a: string, b: string): boolean {
+  return bundleMarkers(a).join('|') === bundleMarkers(b).join('|');
+}
+
 export function deliveredCents(offer: Pick<PriceOffer, 'priceCents' | 'shippingCents'>): number | null {
   return offer.shippingCents === null ? null : offer.priceCents + offer.shippingCents;
 }
-// Offers that may be compared at all: exact product, another store, fresh, in
-// stock, known shipping, no membership or extra coupon needed.
+// Offers that may be compared at all: exact product (no bundle on one side only),
+// another store, fresh, in stock, known shipping, no membership or extra coupon needed.
 export function comparableOffers(baseline: PageProduct, offers: PriceOffer[], now = new Date(), maxAgeMs = PRICE_EVIDENCE_MAX_AGE_MS): PriceOffer[] {
   const nowMs = now.getTime();
   const freshness = Math.min(maxAgeMs, PRICE_EVIDENCE_MAX_AGE_MS);
   return offers.filter((offer) => {
     const observed = Date.parse(offer.observedAt); const expires = Date.parse(offer.expiresAt);
-    return sameProduct(baseline.identity, offer.product) && !sameMerchant(offer.merchantDomain, baseline.merchantDomain)
+    return sameProduct(baseline.identity, offer.product) && sameBundle(baseline.title, offer.title) && !sameMerchant(offer.merchantDomain, baseline.merchantDomain)
       && offer.currency === baseline.currency && offer.availability === 'in_stock' && offer.shippingCents !== null
       && !offer.requiresMembership && !offer.requiresCoupon
       && observed <= nowMs && nowMs - observed <= freshness && expires > nowMs;

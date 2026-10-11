@@ -1,4 +1,4 @@
-import { amazonProductAsin, productIdentityKey, pageProductSchema, sameMerchant, sameProduct, PRICE_EVIDENCE_MAX_AGE_MS, type PageProduct, type PriceCoverage, type ProductIdentity } from '@repo/shared';
+import { amazonProductAsin, brandsCompatible, productIdentityKey, pageProductSchema, sameMerchant, sameProduct, variantsCompatible, PRICE_EVIDENCE_MAX_AGE_MS, type PageProduct, type PriceCoverage, type ProductIdentity } from '@repo/shared';
 import { parseStoreHtml, type ParseRequest } from './parse-html';
 import type { ProductRead } from './product-reader';
 import type { SearchCandidate, SearchStore } from './search-parsers';
@@ -96,17 +96,37 @@ function pick(candidates: SearchCandidate[], identity: ProductIdentity, byGtin: 
   return [...new Map([...named, ...organic].map((candidate) => [candidate.url, candidate])).values()].slice(0, MAX_PRODUCT_PAGES);
 }
 
-// Amazon pages with several purchase modes (new, used, list price) can't say which
-// price is the buy box without layout; Amazon's own offer list (observed October 9,
-// B0G22WX3YR: $96.49 new vs $81.23 used) names it. Fetched only when needed.
+// Amazon pages with several purchase modes (new, used, list price) and no "Buy New"
+// row can't say which price is the buy box without layout; Amazon's own offer list
+// (observed October 9, B0G22WX3YR: $96.49 new vs $81.23 used) names it. Fetched only when needed.
 async function readCandidate(store: Store, url: string, signal?: AbortSignal): Promise<ProductRead> {
   const html = await fetchPage(url, store.host, signal);
   const first = await parseFetched<ProductRead>({ type: 'parse-product', html, url });
-  const asin = store.key === 'amazon' && first.status === 'unrecognized' ? amazonProductAsin(url) : null;
+  if (store.key !== 'amazon' || first.status !== 'unrecognized') return first;
+  const asin = amazonProductAsin(url);
   if (!asin) return first;
-  const offersHtml = await fetchPage(`https://www.amazon.com/gp/product/ajax/aodAjaxMain/ref=dp_aod_ALL_mbc?asin=${asin}&pc=dp&experienceId=aodAjaxMain`, store.host, signal);
+  let offersHtml: string;
+  try {
+    offersHtml = await fetchPage(`https://www.amazon.com/gp/product/ajax/aodAjaxMain/ref=dp_aod_ALL_mbc?asin=${asin}&pc=dp&experienceId=aodAjaxMain`, store.host, signal);
+  } catch (error) {
+    return { status: 'unrecognized', reason: `${first.reason} Amazon's offer list did not load (${(error as Error).message}).` };
+  }
   return parseFetched<ProductRead>({ type: 'parse-product', html, url, offersHtml });
 }
+
+// Why a store page that read as a product is not the shopper's item.
+export function notTheSameItem(wanted: ProductIdentity, found: ProductIdentity): string {
+  if (wanted.condition !== found.condition) return `condition ${found.condition}, not ${wanted.condition}`;
+  if (wanted.packQuantity !== found.packQuantity) return `pack of ${found.packQuantity}, not ${wanted.packQuantity}`;
+  if (wanted.model && found.model && wanted.model !== found.model) return `model ${found.model}, not ${wanted.model}`;
+  if (wanted.brand && found.brand && !brandsCompatible(wanted.brand, found.brand)) return `brand ${found.brand}, not ${wanted.brand}`;
+  if (wanted.variant && found.variant && !variantsCompatible(wanted.variant, found.variant)) return `variant ${found.variant}, not ${wanted.variant}`;
+  if (wanted.gtin && found.gtin && wanted.gtin !== found.gtin) return `UPC ${found.gtin}, not ${wanted.gtin}`;
+  return 'no shared UPC or model code';
+}
+// Why each candidate page was set aside, in the worker's console, so a missed or
+// refused match can be explained without guessing.
+const logSkipped = (store: Store, url: string, why: string) => console.info(`Hold live check (${store.merchant}): ${url} not used: ${why}`);
 
 async function checkStore(store: Store, identity: ProductIdentity, signal?: AbortSignal): Promise<Cached> {
   const search = store.search(identity);
@@ -114,16 +134,22 @@ async function checkStore(store: Store, identity: ProductIdentity, signal?: Abor
   try {
     const candidates = pick(await parseFetched<SearchCandidate[]>({ type: 'parse-search', store: store.key, html: await fetchPage(search.url, store.host, signal), url: search.url }),
       identity, search.byGtin);
+    if (!candidates.length) logSkipped(store, search.url, 'no search result to open.');
     const reads = await Promise.allSettled(candidates.map((candidate) => readCandidate(store, candidate.url, signal)));
-    const products = reads.flatMap((read) => {
-      if (read.status !== 'fulfilled' || read.value.status !== 'product') return [];
+    const products = reads.flatMap((read, index) => {
+      const url = candidates[index]!.url;
+      if (read.status !== 'fulfilled') { logSkipped(store, url, `did not load (${(read.reason as Error)?.message ?? read.reason}).`); return []; }
+      if (read.value.status !== 'product') { logSkipped(store, url, read.value.reason); return []; }
       const parsed = pageProductSchema.safeParse(read.value.product);
-      return parsed.success && parsed.data.merchantDomain === store.host && sameProduct(identity, parsed.data.identity) ? [parsed.data] : [];
+      if (!parsed.success || parsed.data.merchantDomain !== store.host) { logSkipped(store, url, 'the product record is invalid.'); return []; }
+      if (!sameProduct(identity, parsed.data.identity)) { logSkipped(store, url, `${notTheSameItem(identity, parsed.data.identity)}.`); return []; }
+      return [parsed.data];
     });
     // Every candidate page failing is not the same as "this store does not sell it".
     if (candidates.length && reads.every((read) => read.status === 'rejected' || read.value.status !== 'product')) return { at: Date.now(), status: 'unavailable', products: [] };
     return { at: Date.now(), status: 'checked', products };
-  } catch {
+  } catch (error) {
+    logSkipped(store, search.url, `the search did not load (${(error as Error).message}).`);
     return { at: Date.now(), status: 'unavailable', products: [] };
   }
 }

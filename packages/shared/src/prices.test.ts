@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import {
-  brandsCompatible, cleanProductUrl, compareOffers, normalizeGtin, normalizeModel, offerFromPage,
+  brandsCompatible, cleanProductUrl, comparableOffers, compareOffers, normalizeGtin, normalizeModel, offerFromPage,
   pageProductSchema, priceComparisonSchema, priceOfferSchema, productIdentityKey, sameProduct, type PageProduct, type PriceOffer,
 } from './prices';
 
@@ -118,6 +118,27 @@ test('comparisons fail closed', () => {
   expect(compareOffers({...amazon, observedAt: minutesAgo(16)}, [offer], {now}).status).toBe('not_checked');
   expect(compareOffers({...amazon, observedAt: minutesAgo(-1)}, [offer], {now}).status).toBe('not_checked');
   expect(compareOffers(amazon, [{...offer, observedAt: minutesAgo(15)}], {now}).status).toBe('better_offer');
+});
+
+// Observed live October 10, 2026: Walmart's bundle shares the headphones' UPC and model.
+const bestBuyXm5: PageProduct = pageProductSchema.parse({
+  identity: {brand: 'Sony', model: 'WH1000XM5/B', gtin: null, variant: 'Black', packQuantity: 1, condition: 'new'},
+  title: 'Sony - WH-1000XM5 Wireless Noise Cancelling Over-the-Ear Headphones - Black', merchant: 'Best Buy',
+  merchantDomain: 'www.bestbuy.com', seller: 'Best Buy', url: 'https://www.bestbuy.com/product/sony-wh-1000xm5-wireless-noise-cancelling-over-the-ear-headphones-black/J7XSRH5CXG',
+  priceCents: 19800, shippingCents: null, currency: 'USD', availability: 'in_stock', observedAt: minutesAgo(1), reader: 'json-ld',
+});
+const walmartXm5Bundle: PageProduct = pageProductSchema.parse({
+  identity: {brand: 'Sony', model: 'WH1000XM5/B', gtin: '00196641030558', variant: null, packQuantity: 1, condition: 'new'},
+  title: 'Sony WH1000XM5/B Wireless Industry Leading Noise Canceling Headphones, Black Bundle with Premium 2 YR CPS Enhanced Protection Pack, Deco Gear Headphone Case and Audio Entertainment Essentials Bundle',
+  merchant: 'Walmart', merchantDomain: 'www.walmart.com', seller: 'Beach Camera same day shipping',
+  url: 'https://www.walmart.com/ip/Sony-WH1000XM5-B-Wireless-Industry-Leading-Noise-Canceling-Headphones-Black-Bundle-Premium-2-YR-CPS-Enhanced-Protection-Pack-Deco-Gear-Headphone-Case/1139576680',
+  priceCents: 31999, shippingCents: 0, currency: 'USD', availability: 'in_stock', observedAt: minutesAgo(1), reader: 'walmart',
+});
+
+test('a bundle never passes as the bare item, in either direction', () => {
+  expect(sameProduct(bestBuyXm5.identity, walmartXm5Bundle.identity)).toBe(true); // identity alone can't tell
+  expect(comparableOffers(bestBuyXm5, [offerFromPage(walmartXm5Bundle, 'live_check')], now)).toEqual([]);
+  expect(comparableOffers({...walmartXm5Bundle, shippingCents: 0}, [offerFromPage({...bestBuyXm5, shippingCents: 0}, 'live_check')], now)).toEqual([]);
 });
 
 test('offers and comparisons reject inconsistent data', () => {

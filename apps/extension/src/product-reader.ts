@@ -1,4 +1,5 @@
 import { amazonProductAsin, cleanProductUrl, normalizeGtin, normalizeModel, pageProductSchema, type PageProduct } from '@repo/shared';
+import type { SellerOffer } from './amazon-sellers';
 
 // Reads the product the shopper is looking at, on the device. Three readers, each
 // observed live on October 8, 2026 (Philips Norelco MG5965/49):
@@ -10,8 +11,8 @@ import { amazonProductAsin, cleanProductUrl, normalizeGtin, normalizeModel, page
 // there, duplicate hidden blocks must agree and Amazon's buy-box amount is required.
 
 // The page being read: the live document, or a fetched one parsed in the offscreen document.
-// buyBoxCents: from Amazon's own offer list, for fetched pages with several purchase modes.
-export type Page = { doc: Document; url: URL; live: boolean; buyBoxCents?: number | null };
+// offers: Amazon's own offer list, for fetched pages with several purchase modes.
+export type Page = { doc: Document; url: URL; live: boolean; offers?: SellerOffer[] };
 export type ProductRead =
   | { status: 'product'; product: PageProduct }
   | { status: 'not_product' | 'unrecognized'; reason: string };
@@ -85,7 +86,30 @@ function amazonRows(document: Document): Map<string, string> {
   }
   return rows;
 }
-function amazonPrice(page: Page): number | null {
+// A buy-box price, or why there is none (logged by live checks).
+type BuyBox = { cents: number; why?: undefined } | { cents: null; why: string };
+const NO_BUY_BOX: BuyBox = { cents: null, why: 'Amazon shows no single buy-box price for this product.' };
+const AMOUNT = 'input[name="items[0.base][customerVisiblePrice][amount]"]';
+// Fetched pages have no layout to tell purchase modes (new, used, list price) apart.
+// Amazon's own "Buy New" row names the new one; observed October 10, 2026 on
+// B0DGJ7HYG1 (new $116.99, used $74.87) and B00006JSUA (new $24.90, used $23.16),
+// each row holding its add-to-cart amount. Without that row, Amazon's offer list
+// must feature a new offer at one of the page's amounts.
+function fetchedBuyBox(page: Page, amounts: Set<number>): BuyBox {
+  if (amounts.size === 1) return { cents: [...amounts][0]! };
+  if (!amounts.size) return { cents: null, why: 'Amazon shows no buy-box amount for this product.' };
+  const newRow = new Set([...page.doc.querySelectorAll<HTMLInputElement>(`[data-a-accordion-row-name="newAccordionRow"] ${AMOUNT}`)].map((input) => dollarsToCents(input.value)!));
+  if (newRow.size === 1) return { cents: [...newRow][0]! };
+  if (newRow.size > 1) return { cents: null, why: `Amazon's Buy New row has ${newRow.size} amounts.` };
+  if (!page.offers) return { cents: null, why: `Amazon shows ${amounts.size} purchase-mode prices and no Buy New row.` };
+  const featured = page.offers.filter((offer) => offer.pinned);
+  if (featured.length !== 1) return { cents: null, why: `Amazon's offer list features ${featured.length} offers.` };
+  const { condition, priceCents } = featured[0]!;
+  if (condition !== 'New') return { cents: null, why: `Amazon's offer list features a "${condition}" offer, not a new one.` };
+  if (priceCents === null || !amounts.has(priceCents)) return { cents: null, why: "Amazon's offer list features a new offer at a price this page doesn't carry." };
+  return { cents: priceCents };
+}
+function amazonPrice(page: Page): BuyBox {
   const document = page.doc;
   const toPay = [...document.querySelectorAll('#corePriceDisplay_desktop_feature_div .priceToPay, #corePrice_feature_div .priceToPay')].filter(shown(page));
   const priceOf = (price: Element) => {
@@ -96,29 +120,27 @@ function amazonPrice(page: Page): number | null {
   };
   // Amazon's own buy-box amounts. Pages with several purchase modes (new, used,
   // list price) carry one per mode; the shown price must be one of them.
-  const amounts = new Set([...document.querySelectorAll<HTMLInputElement>('input[name="items[0.base][customerVisiblePrice][amount]"]')].map((input) => dollarsToCents(input.value)));
+  const amounts = new Set([...document.querySelectorAll<HTMLInputElement>(AMOUNT)].map((input) => dollarsToCents(input.value)));
   const currencies = new Set([...document.querySelectorAll<HTMLInputElement>('input[name="items[0.base][customerVisiblePrice][currencyCode]"]')].map((input) => input.value));
-  if (amounts.has(null) || (amounts.size && (currencies.size !== 1 || !currencies.has('USD')))) return null;
+  if (amounts.has(null) || (amounts.size && (currencies.size !== 1 || !currencies.has('USD')))) return NO_BUY_BOX;
   if (!page.live) {
-    // No layout to tell purchase modes apart: the buy box must be unambiguous, or
-    // named by Amazon's own offer list.
-    const buyBox = amounts.size === 1 ? [...amounts][0]! : page.buyBoxCents != null && amounts.has(page.buyBoxCents) ? page.buyBoxCents : null;
-    if (buyBox === null) return null;
-    return new Set(toPay.map(priceOf)).has(buyBox) ? buyBox : null;
+    const buyBox = fetchedBuyBox(page, amounts as Set<number>);
+    if (buyBox.cents === null || new Set(toPay.map(priceOf)).has(buyBox.cents)) return buyBox;
+    return { cents: null, why: `Amazon's buy-box amount ${usd(buyBox.cents)} is not a price the page shows.` };
   }
   let seen: number | null = null;
   if (toPay.length) {
     const prices = new Set(toPay.map(priceOf));
-    if (prices.size !== 1) return null;
+    if (prices.size !== 1) return NO_BUY_BOX;
     seen = [...prices][0]!;
   } else {
     const offscreen = [...document.querySelectorAll('#corePrice_feature_div .a-price:not(.a-text-price) .a-offscreen')]
       .map((node) => clean(node.textContent)).filter(Boolean);
-    if (new Set(offscreen).size !== 1) return null;
+    if (new Set(offscreen).size !== 1) return NO_BUY_BOX;
     seen = dollarsToCents(offscreen[0]);
   }
-  if (seen === null || (amounts.size > 0 && !amounts.has(seen))) return null;
-  return seen;
+  if (seen === null || (amounts.size > 0 && !amounts.has(seen))) return NO_BUY_BOX;
+  return { cents: seen };
 }
 function amazonShipping(document: Document, priceCents: number): number | null {
   const text = clean(document.querySelector('#mir-layout-DELIVERY_BLOCK-slot-PRIMARY_DELIVERY_MESSAGE_LARGE, #mir-layout-DELIVERY_BLOCK')?.textContent);
@@ -133,8 +155,8 @@ export function amazonBuyBox(): { asin: string; priceCents: number } | null {
   if (!asin || window !== window.top) return null;
   const ids = new Set([...document.querySelectorAll<HTMLInputElement>('input#ASIN, input#asin')].map((input) => input.value));
   if (ids.size !== 1 || !ids.has(asin)) return null;
-  const priceCents = amazonPrice(page);
-  return priceCents === null ? null : { asin, priceCents };
+  const price = amazonPrice(page);
+  return price.cents === null ? null : { asin, priceCents: price.cents };
 }
 function readAmazon(page: Page, now: Date): ProductRead {
   const document = page.doc;
@@ -150,8 +172,9 @@ function readAmazon(page: Page, now: Date): ProductRead {
   const gtins = new Set(clean(rows.get('upc') ?? rows.get('ean') ?? rows.get('gtin') ?? '').split(' ').map(normalizeGtin).filter(Boolean));
   const byline = clean(document.querySelector('#bylineInfo')?.textContent).match(/^(?:Visit the (.+?) Store|Brand: (.+))$/i);
   const brand = clean(rows.get('brand') ?? rows.get('brand name') ?? rows.get('manufacturer') ?? byline?.[1] ?? byline?.[2]) || null;
-  const priceCents = amazonPrice(page);
-  if (priceCents === null) return { status: 'unrecognized', reason: 'Amazon shows no single buy-box price for this product.' };
+  const price = amazonPrice(page);
+  if (price.cents === null) return { status: 'unrecognized', reason: price.why };
+  const priceCents = price.cents;
   const usedSelected = document.querySelector('#usedAccordionRow.a-accordion-active, #usedBuySection');
   const availability = clean(document.querySelector('#availability')?.textContent);
   const seller = clean(document.querySelector('[offer-display-feature-name="desktop-merchant-info"] .offer-display-feature-text')?.textContent).slice(0, 100) || null;
@@ -170,9 +193,20 @@ function readAmazon(page: Page, now: Date): ProductRead {
 // ---------- Walmart ----------
 type WalmartProduct = {
   usItemId?: string; name?: string; brand?: string; model?: string; upc?: string; color?: unknown; conditionType?: string;
+  isConditionNew?: boolean; conditionV2?: { groupCode?: number; text?: string } | null;
   sellerName?: string; availabilityStatus?: string; priceInfo?: { currentPrice?: { price?: number } };
   trustBadges?: { type?: string }[];
 };
+// New only when every condition signal agrees. Observed October 10, 2026 (11384707978):
+// an open-box buy box keeps conditionType "New" while isConditionNew is false,
+// conditionV2 says "Open Box" (group "Pre-Owned") and the name starts "(Open Box)".
+function walmartCondition(product: WalmartProduct, title: string): 'new' | 'used' | 'refurbished' | 'unknown' {
+  const v2 = product.conditionV2;
+  const marked = conditionFromTitle(title);
+  const isNew = /^new$/i.test(product.conditionType ?? '') && product.isConditionNew === true
+    && (v2 == null || (v2.groupCode === 1 && /^new$/i.test(v2.text ?? '')));
+  return isNew && !marked ? 'new' : marked ?? conditionFromTitle(v2?.text ?? '') ?? 'unknown';
+}
 // Walmart ships free from $35 for everyone; the item's own free-shipping badge must also say so.
 const WALMART_FREE_SHIPPING_FROM_CENTS = 3500;
 export function walmartData(document: Document): any {
@@ -189,7 +223,7 @@ function readWalmart(page: Page, now: Date): ProductRead {
   if (priceCents === null || !priceVisible(page, priceCents)) return { status: 'unrecognized', reason: 'Walmart shows no single current price for this product.' };
   const freeShipping = product.trustBadges?.some((badge) => badge.type === 'FREE_SHIPPING') && priceCents >= WALMART_FREE_SHIPPING_FROM_CENTS;
   const title = clean(product.name).slice(0, 300);
-  const condition = /^new$/i.test(product.conditionType ?? '') ? 'new' : conditionFromTitle(title) ?? 'unknown';
+  const condition = walmartCondition(product, title);
   return finish({
     identity: { brand: clean(product.brand) || null, model: normalizeModel(product.model ?? null), gtin: normalizeGtin(product.upc ?? ''),
       variant: null,
