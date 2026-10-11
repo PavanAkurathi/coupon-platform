@@ -131,9 +131,11 @@ try {
   const rejected=await dashboard.evaluate(async()=>await chrome.runtime.sendMessage({type:'hold-save-page'}));
   assert.equal(rejected.ok,false);
   check('dashboard cannot impersonate the popup save action',()=>undefined);
-  await dashboard.getByRole('link',{name:'Coupons',exact:true}).click();await dashboard.getByRole('button',{name:'Refresh codes'}).click();
-  await dashboard.getByText('No stores are enabled for coupon testing yet. There are no reviewed codes to show.').waitFor();
-  check('packaged dashboard reads the configured coupon service without fabricated codes',()=>undefined);
+  // Store builds hide tabs with nothing real behind them; their addresses fall back to the list.
+  assert.equal(await dashboard.getByRole('link',{name:'Coupons',exact:true}).count(),0);
+  assert.equal(await dashboard.getByRole('link',{name:'Rewards',exact:true}).count(),0);
+  for(const hidden of ['coupons','rewards']){await dashboard.goto(`${base}/dashboard/index.html#${hidden}`);await dashboard.getByRole('heading',{name:'Your next good buy.'}).waitFor();}
+  check('store dashboard hides the Coupons and Rewards tabs',()=>undefined);
   console.log(`${count} companion browser checks passed.`);
 } finally {
   await browser?.close();await extension?.close();server.stop(true);await rm(scratch,{recursive:true,force:true});

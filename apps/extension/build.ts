@@ -96,9 +96,12 @@ for (const entry of entries) {
   bundles.set(`${entry}.js`, await result.outputs[0]!.text());
 }
 const staticFiles = ["popup.html", "popup.css", ...(browser === "chrome" ? ["offscreen.html"] : []), "icon.svg", ...ICON_SIZES.map((size) => `icon-${size}.png`)];
+// Store builds hide the dashboard's Coupons and Rewards tabs until they have real data (no store
+// is enabled for codes, and rewards don't exist yet), so its dashboard never calls the coupon service.
+const dashboardPreview = target === "dev";
 const dashboard = await Bun.build({
   entrypoints: [resolve(dir, '../dashboard/src/main.ts')], target: 'browser', format: 'esm', minify: true,
-  banner: ZOD_JITLESS, define: { __API_ORIGIN__: JSON.stringify(apiOrigin) },
+  banner: ZOD_JITLESS, define: { __API_ORIGIN__: JSON.stringify(dashboardPreview ? apiOrigin : null), __PREVIEW_TABS__: JSON.stringify(dashboardPreview) },
 });
 if (!dashboard.success || dashboard.outputs.length !== 1) throw new AggregateError(dashboard.logs, 'Dashboard build failed');
 bundles.set('dashboard/main.js', await dashboard.outputs[0]!.text());

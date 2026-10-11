@@ -4,7 +4,12 @@ import { inExtension, send } from './store';
 import { dollars, priceState, selectItems } from './view-model';
 
 declare const __API_ORIGIN__: string | null | undefined;
+// False in store builds (apps/extension/build.ts): Coupons and Rewards stay hidden until
+// they have real data behind them. Unset in dev and the standalone dashboard.
+declare const __PREVIEW_TABS__: boolean | undefined;
 const api = typeof __API_ORIGIN__ === 'string' ? __API_ORIGIN__ : null;
+const previewTabs = typeof __PREVIEW_TABS__ === 'boolean' ? __PREVIEW_TABS__ : true;
+const pages = ['list','coupons','stores','rewards','trust','settings'].filter((id) => previewTabs || (id !== 'coupons' && id !== 'rewards'));
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const dialog = document.querySelector<HTMLDialogElement>('#editor')!;
 const money = (cents: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
@@ -27,7 +32,7 @@ const icons: Record<string, string> = {
   arrow: '<path d="M6 18 18 6M6 6h12v12"/>', search: '<circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/>',
 };
 const icon = (name: string, cls = '') => `<svg class="icon ${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] ?? icons.list}</svg>`;
-const page = () => ['list','coupons','stores','rewards','trust','settings'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'list';
+const page = () => pages.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'list';
 function notify(message: string) {
   const toast = document.querySelector<HTMLDivElement>('#toast')!;
   toast.textContent = message; toast.classList.add('visible'); clearTimeout(toastTimer);
@@ -38,7 +43,7 @@ async function mutate(request: WatchlistRequest, message: string) {
   catch (error) { notify(error instanceof Error ? error.message : 'That change could not be saved.'); throw error; }
 }
 function shell() {
-  const nav = [['list','My list'],['coupons','Coupons'],['stores','Stores'],['rewards','Rewards'],['trust','The Hold promise']];
+  const nav = [['list','My list'],['coupons','Coupons'],['stores','Stores'],['rewards','Rewards'],['trust','The Hold promise']].filter(([id]) => pages.includes(id!));
   root.innerHTML = `<aside class="sidebar"><a href="#list" class="wordmark" aria-label="Hold home"><span class="brand-symbol">h</span>HOLD<span class="brand-period">.</span></a><div class="nav-label">SHOP ON YOUR TERMS</div><nav aria-label="Main navigation">${nav.map(([id,label]) => `<a href="#${id}" ${page()===id ? 'aria-current="page"':''}>${icon(id!)}<span>${label}</span>${id==='list'?`<span class="nav-count">${list.items.length}</span>`:''}</a>`).join('')}</nav><div class="sidebar-bottom"><div class="private-note">${icon('trust')}<div><strong>Yours to keep.</strong><p>Your list stays in this browser.</p></div></div><a class="settings-link" href="#settings">${icon('settings')} Settings & data</a></div></aside>
   <div class="workspace"><header class="topbar"><span class="crumb">YOUR SHOPPING, A LITTLE MORE CONSIDERED</span><span class="local-pill"><i></i>${inExtension?'Extension dashboard':'Browser-local dashboard'}</span></header><main id="content" tabindex="-1"></main><footer class="page-footer"><span>Good things are worth a little Hold.</span><a href="#trust">See how Hold works ${icon('arrow')}</a></footer></div>`;
 }

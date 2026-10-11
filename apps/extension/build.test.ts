@@ -26,6 +26,8 @@ describe("store builds", () => {
     expect(existsSync(join(outdir, "dashboard/index.html"))).toBe(true);
     expect(existsSync(join(outdir, "dashboard/styles.css"))).toBe(true);
     expect(manifest.web_accessible_resources).toBeUndefined();
+    // The store dashboard hides Coupons and Rewards, and has no coupon service to call.
+    expect(await Bun.file(join(outdir, "dashboard/main.js")).text()).not.toContain("coupons.example.test");
     // The Chrome worker leaves page parsing to the offscreen document.
     expect(await Bun.file(join(outdir, "worker.js")).text()).not.toContain("parseFromString");
   }, 60_000);
