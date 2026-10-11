@@ -5,6 +5,9 @@ import { API_ORIGIN, inspectionSchema, popupRequestSchema, resultMatchesCheckout
 import { adapterFor } from './adapters/registry';
 import { runApprovedTrial } from './gate';
 import { alertsEnabled, comparisonFor, disablePriceAlerts, forgetProducts, popupPrice, syncPriceAlerts, trustedPageProduct } from './price-worker';
+import { onProductObserved } from './price-worker';
+import { watchlistRequestSchema } from '@repo/shared';
+import { createWatchlistStore, watchlistSender } from './watchlist-worker';
 
 const running = new Set<number>();
 const badgeGenerations = new Map<number, number>();
@@ -19,6 +22,8 @@ const secureStorage = typeof chrome.storage.local.setAccessLevel === 'function' 
   chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
   chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
 ]) : Promise.resolve([]);
+const watchlist = createWatchlistStore(chrome.storage.local, secureStorage);
+onProductObserved((product) => watchlist.observe(product));
 type Merchant = z.infer<typeof merchantsResponseSchema>['merchants'][number];
 
 const SERVICE_UNAVAILABLE = 'The coupon service is unavailable. Please try again shortly.';
@@ -323,6 +328,37 @@ async function run(code?: string): Promise<{ result: TrialResult; reportNote: st
 
 chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;
+  const owner = watchlistSender(sender, chrome.runtime.id, chrome.runtime.getURL);
+  const savedRequest = watchlistRequestSchema.safeParse(raw);
+  if (savedRequest.success) {
+    if (!owner || (savedRequest.data.type === 'hold-save-page' && owner !== 'popup')) {
+      sendResponse({ ok: false, error: 'This page cannot access your saved list.' });
+      return false;
+    }
+    // Resolve the page outside the storage queue: popupPrice remembers observations,
+    // which uses that same queue. Recheck binding after every asynchronous read.
+    const resolvePage = async () => {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab?.id || !tab.url?.startsWith('https://')) throw new Error('Open a supported product page, then save it from Hold.');
+      const originalURL = tab.url;
+      const assertCurrent = async () => {
+        const current = await chrome.tabs.get(tab.id!);
+        const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (current.url !== originalURL || active?.id !== tab.id || active.url !== originalURL) throw new Error('The product page changed. Open Hold again before saving.');
+      };
+      const price = await popupPrice(tab);
+      await assertCurrent();
+      if (!price?.product) throw new Error('Hold could not read this product. Add its link from My Hold list instead.');
+      return { product: price.product, assertCurrent };
+    };
+    const handleSaved = async () => {
+      const bound = savedRequest.data.type === 'hold-save-page' ? await resolvePage() : undefined;
+      return watchlist.handle(savedRequest.data, bound ? async () => bound : undefined);
+    };
+    handleSaved().then((data) => sendResponse({ ok: true, data }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : 'Your list could not be updated.' }));
+    return true;
+  }
   if (sender.tab) {
     if ((raw as { type?: unknown } | null)?.type === 'price-seen') {
       const product = trustedPageProduct(raw, sender);

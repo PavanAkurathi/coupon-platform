@@ -9,6 +9,8 @@
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "verify:integration": "bun --no-env-file services/coupon-service/tests/verify-integration.ts",
+    "verify:companion": "bun --no-env-file apps/extension/e2e/companion.ts",
+    "dashboard": "bun --no-env-file apps/dashboard/dev.ts",
     "dev": "turbo dev",
     "db:migrate": "bun run --cwd services/coupon-service db:migrate",
     "db:seed": "bun run --cwd services/coupon-service db:seed",

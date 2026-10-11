@@ -11,3 +11,5 @@ playwright-report/
 *.zip
 dist-firefox/
 apps/extension/release/
+.playwright-cli/
+output/playwright/

@@ -1,8 +1,18 @@
-# Coupon platform
+# Hold
 
-A small, runnable coupon MVP: an MV3 extension, a real coupon API, and two explicit service stubs. Neutral naming throughout. Bun 1.3.14+, Docker, Chrome/Chromium; USD only for the first release.
+A shopping prototype: an MV3 extension, a browser-local shopping dashboard, a coupon API and a price service. Rewards remain an explicit stub. Bun 1.3.14+, Chrome/Chromium; USD only. Current source includes Hold 0.4.3 and the new companion packet; the installed extension is not automatically replaced.
 
 Current progress: [STATUS.md](STATUS.md) and [beta readiness](docs/BETA-READINESS.md). Live-store evidence: [Amazon](docs/AMAZON-CHECKOUT-EVIDENCE.md), [Shopify](docs/SHOPIFY-CHECKOUT-EVIDENCE.md). Beta hosting: [Neon](docs/DEPLOY-NEON.md).
+
+## Shopping dashboard
+
+Run `bun run dashboard` and open `http://127.0.0.1:4175`. Save links, enter prices and targets, inspect recorded history, search your list and export/import backups. Everything stays in that browser; the standalone dashboard is not synced to extension storage.
+
+New extension builds include the same dashboard at `dashboard/index.html`. Click **My Hold list** in the popup. **Save item** records a readable product page and revisits can add observations. Imported/manual prices are labeled accordingly. Saving does not enable continuous monitoring, cash back or scheduled notifications. The packaged coupon view uses the build's coupon API; standalone coupons stay unconnected.
+
+Run `bun run verify:companion` for the isolated browser checks. It builds into a fresh temporary directory and uses synthetic product/API fixtures with external requests blocked. It never rewrites the installed extension or accesses a personal browser profile. Screenshots go to ignored `output/playwright/`.
+
+**Installed-build warning:** the legacy root `bun run build` writes `apps/extension/dist`. For this workspace, preserve the installed 0.4.3 and use `bun --no-env-file apps/extension/build.ts --outdir <fresh-temporary-directory>` for development builds. Use the established `release.ts --ref` workflow after committing/reviewing source for a release; this companion work has not been published.
 
 ## Run
 
@@ -19,7 +29,7 @@ Load `apps/extension/dist` as an unpacked extension at `chrome://extensions` (De
 
 **Amazon.com product coupons:** open a product page, then the extension. It reads visible native coupon offers locally and offers **Show coupon on Amazon**, which scrolls/focuses the existing control. It does not select the coupon. On Amazon's order review page it reads the coupon savings and order total Amazon displays, labelled "Order not placed. No commission claimed." Codes are never tested on Amazon. This uses temporary access when you open the popup; no persistent Amazon permission, API upload or browsing-history storage. Unknown layouts stop safely. [Scope and live evidence](docs/AMAZON-INTEGRATION.md).
 
-**Shopify:** automated code trials work on Shopify's checkout for any store whose exact host an operator has enabled (`merchant add`). They were proven live on Allbirds. Codes come only from the reviewed, shopper-verified candidates. Existing codes are never removed and orders are never placed. Before enabling a store, run `bun run --cwd apps/extension e2e/shopify-live-check.ts --live-approved <host>`, which needs founder approval for live traffic. Fixture suites: `test:e2e:shopify`. New trial adapters require observed controls, approved coupon sources, explicit access and checkout regression tests.
+**Shopify:** the earlier adapter was observed live on Allbirds, but subsequent review found unresolved trial-safety defects. C6 is deferred to M3. **Do not enable any automatic-code merchant until C6 is fixed and verified.** See [the handoff](docs/CLAUDE-SHOPIFY-SAFETY-HANDOFF.md). No merchant was enabled by the companion work. New adapters require observed controls, approved coupon sources and checkout regression tests.
 
 To report results, issue a token for an operator-verified beta shopper, then paste it into the popup's Community settings:
 
@@ -43,6 +53,7 @@ For a browser smoke test against the running, seeded stack and demo, run `bun ru
 
 ```text
 apps/extension            popup → worker → API; content script → promo controls
+apps/dashboard            local shopping list; also packaged inside the extension
 services/coupon-service   Hono API → Drizzle / Postgres; Redis rate limits
 services/price-service    cross-store offers for price alerts (eBay Browse API, reviewed feed)
 services/cashback-service health + 501 stub (phase 3)
@@ -98,7 +109,7 @@ After a future authenticated settlement, `confirmedEarningsLine` renders **“Yo
 ## Phase order
 
 1. **Extension + coupons now:** prove the checkout flow, invite a small reporting cohort, add one real merchant adapter at a time. No crawling infrastructure or affiliate network integration yet.
-2. **Price alerts (October 8):** "cheaper elsewhere" banners and a one-time buy-click pause on any store, from prices seen in the shopper's browser plus `POST /v1/prices/offers` (eBay when keys are set). See [docs/PRICE-ALERTS.md](docs/PRICE-ALERTS.md). Price history and drop alerts are not built.
+2. **Prices:** cross-store comparisons from observed pages and the price service. eBay is on hold. The companion records saved-item history and targets; unattended price-drop monitoring is not built. Affiliate feeds remain [design only](docs/AFFILIATE-FEEDS-DESIGN.md).
 3. **Cashback last:** integrate earned-attribution merchant events and a ledger, using the existing trust/fee policy. `/v1/cashback/*` intentionally returns `501` today.
 
 Before a public beta: add real shopper verification/token recovery, merchant-specific terms/expiry curation, HTTPS API configuration and matching extension permissions, and real checkout regression fixtures. No accounts UI, billing system or broad merchant scraping is needed for the first private beta.

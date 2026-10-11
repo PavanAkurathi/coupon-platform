@@ -1,0 +1,5 @@
+{
+  "name": "@repo/dashboard", "version": "0.1.0", "private": true, "type": "module",
+  "scripts": { "build": "bun --no-env-file build.ts", "dev": "bun --no-env-file dev.ts", "typecheck": "tsc --noEmit", "test": "bun test src" },
+  "dependencies": { "@repo/shared": "workspace:*" }
+}

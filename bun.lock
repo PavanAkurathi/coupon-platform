@@ -10,6 +10,13 @@
         "typescript": "^5.9.3",
       },
     },
+    "apps/dashboard": {
+      "name": "@repo/dashboard",
+      "version": "0.1.0",
+      "dependencies": {
+        "@repo/shared": "workspace:*",
+      },
+    },
     "apps/extension": {
       "name": "@repo/extension",
       "version": "0.0.1",
@@ -128,6 +135,8 @@
     "@repo/cashback-service": ["@repo/cashback-service@workspace:services/cashback-service"],
 
     "@repo/coupon-service": ["@repo/coupon-service@workspace:services/coupon-service"],
+
+    "@repo/dashboard": ["@repo/dashboard@workspace:apps/dashboard"],
 
     "@repo/extension": ["@repo/extension@workspace:apps/extension"],
 

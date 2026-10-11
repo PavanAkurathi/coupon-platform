@@ -1,29 +1,35 @@
-# Project checkpoint
+# Hold checkpoint
 
-Updated October 8, 2026, midday. **Not ready for an external beta yet, but the blockers are now narrow and named.** Codex is paused until its weekly reset; the Claude coordinating session is doing Codex's work (see [coordination](docs/COORDINATION.md)). Shareable review: [beta readiness](docs/BETA-READINESS.md).
+Updated October 11, 2026. **Usable local prototype; not ready to claim Honey/Rakuten parity or launch.** The founder chose an extension plus companion dashboard. A broader interface does not resolve the documented coverage gap: the last recorded 30-product test had zero correct savings alerts and one wrong alert; accuracy fixes landed afterward, but coverage has not been remeasured.
 
-## Finished today
+## Current source and installed version
 
-- **Amazon:** product coupons are detected on both live layouts, including the percent-off widget that was being missed. Unrecognized coupons now say "not recognized" instead of "no coupon". The extension also reads order review: "Coupon applied at checkout", with Amazon's displayed savings and total plus "Order not placed. No commission claimed." Code trials are refused on Amazon.
-- **Shopify:** one shared adapter for Shopify's checkout, proven live on Allbirds. The real extension tried two codes, kept the one that worked and showed "$2.81 saved, WELCOME10 applied", with no order and no personal data. A store goes live once an operator enables its exact host and adds reviewed codes; the onboarding check verifies each store first.
-- **Coupon service:** confirmations count only from the last 30 days; candidates show when a code last worked. Each store has an off switch and an operator CLI. Rate limits are proxy-safe, and Postgres can replace Redis.
-- **Hosting:** the coupon API is live as a Neon Function (`couponapi` on project `coupon-beta`), verified from outside, and the beta extension is built against it ([runbook](docs/DEPLOY-NEON.md)). The database is empty by design.
-- **Extension packaging:** dev and beta build targets, HTTPS-only beta manifest, PNG icons, friendly offline errors, and no demo UI on real stores.
+- `main` includes Claude's merge at `dcf77fe`: price comparisons, Hold 0.4.0–0.4.3, Codex I3 and the UPC-suffix rule. The new companion packet is a local working-tree change on top.
+- The founder's installed extension remains **0.4.3** in `apps/extension/dist`. This packet did not rebuild that folder, alter archives, install an extension or deploy anything.
+- `codex/price-speed` still has unmerged work. Checkout tips in `coupon-price-compare` belong to another session. Neither worktree was changed here.
 
-## Validation (October 8)
+## Working in this packet
 
-Typecheck 5/5 workspaces. Unit tests, integration (live Postgres + HTTP), browser fixture suites and live store checks all pass; exact counts are in [the coordination log](docs/COORDINATION.md). Live Amazon walkthrough re-run on the integrated build: the 10% coupon is detected.
+- **Companion dashboard:** `bun run dashboard`, then `http://127.0.0.1:4175`. Responsive Hold design; saved product links, optional prices and targets, chronological price observations, search/filter/sort, item editing/removal, backup import/export and explicit deletion. No fabricated catalog or balances.
+- **Extension integration:** new builds package the same dashboard. “My Hold list” opens it; “Save item” records a product read from the current page. Observations can update an already-saved item when revisiting a readable page. Storage mutations serialize; content scripts cannot query the list through messages; navigation invalidates pending saves.
+- **Evidence:** entered/imported prices are personal notes. Page observations are displayed prices, not receipts or confirmed savings. Target matches expire after 15 minutes and are before shipping/tax. No scheduled monitoring, push/email alerts, accounts or cross-device sync.
+- **Coupons:** the packaged dashboard reads the build's configured coupon service, filters reviewed public neutral codes, and rechecks current evidence before Copy. Empty/unavailable states are explicit. No merchant was enabled. The standalone dashboard has no coupon-service connection.
+- **Rewards:** explicitly unavailable. No points, payable balances, commission activation or payouts were invented.
+- **Shared price review:** approved the UPC-prefix exception with further negative tests. Fixed `sameBundle`: generic labels cannot prove matching contents. Marked bundles are excluded until structured bundle facts exist; title markers are not exhaustive evidence.
+- **Feed/voucher design:** [design document](docs/AFFILIATE-FEEDS-DESIGN.md) includes Postgres identities/snapshots, scheduled imports, candidate/live-check separation, voucher review, independent commercial data, and Rakuten Advertising US. Design only.
 
-## Tester builds
+## Verification
 
-- `outputs/coupon-extension.zip` is the October 7 build ("Coupon extension" 0.1.0, localhost only). It is superseded; don't share it.
-- `outputs/checkout-savings-beta-0.2.0.zip` is today's beta ("Checkout Savings" 0.2.0), built against the live Neon service. It was checked unzipped in a fresh browser. Amazon product coupons and order review work for anyone. Shopify stays inactive until a store is enabled with reviewed codes.
+- Six workspace typechecks passed.
+- 153 unit/build tests passed, including Chrome and Firefox scratch builds.
+- 16 companion browser checks passed: empty state, persistent operations, import validation, mobile width, unavailable services, MV3 messaging, active-page save, updated history and content-script denial. Synthetic fixtures only; no live merchant traffic or purchased orders.
+- No fresh 50-product coverage run, hosted API verification, database integration run or full store-release/Mozilla lint run was performed for this packet. Existing price-speed behavior remains unresolved. No new live-support claims.
 
-## Remaining before a private beta
+## What determines whether this is worth continuing
 
-1. **Founder:** choose the product name, publish a privacy policy, and create a private git remote. Today's work is committed locally (not pushed).
-2. **First store live:** enable Allbirds (or another store) in the beta database with `merchant add`, after reviewing at least one public, attribution-neutral code with source evidence (`coupon:review`).
-3. **Codes:** source reviewed public, attribution-neutral codes for the first 3–5 stores (merchant pages or merchant approval), plus invite tokens for the tester cohort.
-4. **Real Chrome:** load the beta build in Chrome and confirm the toolbar activeTab flow on Amazon product and order review.
+1. Obtain actual approved US feed/coupon access and measure candidate discovery plus live-confirmation success. Feeds alone cannot solve blocked confirmation pages under the current policy.
+2. Meet the existing bar: at least 17 real additional savings in a fixed 50-product basket and zero false claims.
+3. Run a small shopper pilot to see whether people return and prefer Hold for a concrete benefit. Trust messaging and a polished list are insufficient evidence.
+4. M2 needs approved monetization, disclosure and attribution stand-down. **eBay is on hold. C6 stays an M3 prerequisite; no automatic-code merchant may be enabled until C6 is fixed.**
 
-**Price alerts (October 8 evening, branch `codex/price-compare`, not merged):** "cheaper elsewhere" banner plus a one-time buy-click pause on any store. Proven live: eBay $38.27, then Amazon $39.96, showed "$1.69 less at eBay". See [PRICE-ALERTS.md](docs/PRICE-ALERTS.md). The eBay API connector waits for the founder's keys. Cashback remains an explicit stub. No affiliate revenue or payout ledger is active.
+Claude's C7 run failed with a revoked OAuth token without edits. The founder explicitly reassigned that bounded extension integration to Codex; ownership elsewhere is unchanged. See [packet](docs/HOLD-COMPANION-PACKET.md) and [coordination](docs/COORDINATION.md).

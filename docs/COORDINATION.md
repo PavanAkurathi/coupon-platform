@@ -1,6 +1,6 @@
 # Codex / Claude Code work split
 
-Updated October 10, 2026. Codex resumed at the founder's request after reading Claude's completed October 8 handoff and local commits through `8c90cac`. Shared launch requirement: Amazon plus 3–5 Shopify stores, real coupon savings, protected attribution, neutral naming. Founder availability has increased; quality gates stay unchanged.
+Updated October 11, 2026. Main is merged through `dcf77fe`. The newer [Hold v1 plan](HOLD-V1-PLAN.md) and `../CODEX-V1-PACKET.md` updates replace the earlier launch scope below. The founder now requests the extension plus a companion shopping dashboard. Historical packets remain recorded here; [STATUS.md](../STATUS.md) is the current checkpoint.
 
 ## Ownership
 
@@ -253,3 +253,15 @@ Fixes for the three accuracy failures in [COVERAGE.md](COVERAGE.md). Built from 
 - **For Codex to review** (shared contract):
   - `sameBundle` in `comparableOffers` (0.4.3);
   - the UPC-suffix exception in `sameProduct` (3d88c2b, founder decision October 11; not in a release yet).
+
+## October 11: shared review and companion (D4 / C7 — Codex)
+
+- **Authorization:** founder requested the full Honey-style product with Hold's approach and chose extension plus dashboard. Claude's bounded C7 invocation returned `401 OAuth access token has been revoked` without edits. The founder explicitly reassigned this Save item/dashboard extension packet to Codex. Other ownership, worktrees and the C6/M3 deferral remain intact.
+- **Shared review:** UPC-beats-model-suffix approved with normalization and contradictory-fact regressions. `sameBundle` fixed: two generic marker sets cannot establish equivalent contents, and hyphenated/multiple-space protection labels cannot bypass the gate. Marked bundles now remain incomparable until structured contents are available. Untagged titles are not proof of bundle absence.
+- **D4:** `apps/dashboard` provides a real local saved-item list, targets, recorded price history, search/filter/sort, editing, deletion and backups. The same frontend runs standalone and inside the extension. Imported history is deliberately downgraded to personal notes; no product/catalog/earnings seed data is shown to shoppers. Standalone and extension storage are separate, with explicit export/import transfer.
+- **C7:** popup Save item/My Hold list controls; serialized, validated local storage; exact extension-page message authorization; active-tab recheck before save; observations update only existing saved listings; dashboard bundled in Chrome/Firefox. Source packaging includes the new dashboard. No new permissions, tracking links, installed extension changes, checkout mutations, production changes or deployment.
+- **Coupons/rewards:** packaged dashboard reads the configured coupon API and rechecks current review/evidence before Copy. No merchant was enabled. Standalone service absence, empty catalogs and unavailable rewards are explicit. This does not complete M1/M2/M3 or deliver automatic price-drop monitoring.
+- **Feed design completed:** [AFFILIATE-FEEDS-DESIGN.md](AFFILIATE-FEEDS-DESIGN.md), including Rakuten Advertising US, barcode/model keys, imports, live confirmation and restricted commercial data. Still design only.
+- **Validation:** all six workspace typechecks; 153 unit/build tests; Chrome/Firefox temporary builds; 16 isolated companion browser checks. Tests cover persistent editing/history, import failure/round trip, mobile layout, MV3 persistence, page read/save, price revisit, and content-message denial. No live merchant test, fresh coverage basket, database/hosted-service test or full Mozilla release lint was run in this packet. Existing price-speed work remains unmerged.
+- **Handoff to Claude:** review C7 and the shared watchlist contract; update shopper privacy/store disclosures before any release (saved-item history persists until deletion, unlike the existing seven-day incidental price memory). C6 remains deferred to M3; no automatic-code merchant can be enabled first. Checkout tips in the other session are untouched.
+- **Product assessment:** the new interface makes the prototype usable but does not prove competitive value. Proceed toward approved coverage and a measured 50-product result; do not describe this as a completed Honey clone or a launch-ready product.

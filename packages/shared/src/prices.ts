@@ -196,13 +196,16 @@ export type CompareOptions = { now?: Date; minSavingsCents?: number; maxAgeMs?: 
 // titles tell them apart. October 10, 2026: Walmart's "Sony WH1000XM5/B ... Bundle with
 // Premium 2 YR CPS Enhanced Protection Pack, Deco Gear Headphone Case ..." matched Best
 // Buy's plain WH-1000XM5 by UPC and model. Kept narrow, like the eBay source's filter.
-const BUNDLE_MARKERS = /\b(bundle[ds]?|protection (?:plan|pack)|(?:extended|accident(?:al)?) (?:warranty|protection)|applecare)\b/gi;
-function bundleMarkers(title: string): string[] {
-  return [...new Set([...title.matchAll(BUNDLE_MARKERS)].map((match) => /^bundle/i.test(match[1]!) ? 'bundle' : 'protection plan'))].sort();
+const BUNDLE_MARKERS = /\b(bundle[ds]?|protection\s+(?:plans?|packs?)|(?:extended|accident(?:al)?)\s+(?:warrant(?:y|ies)|protection)|apple\s*care)\b/i;
+function hasBundleMarker(title: string): boolean {
+  return BUNDLE_MARKERS.test(title.normalize('NFKC').replace(/[-‐‑‒–—_]+/g, ' '));
 }
-// A bundle and the bare item are different purchases, whichever side is the bundle.
+// Matching generic words cannot establish equal contents: two bundles can have
+// different cases or warranty durations while retaining the base product's UPC.
+// Until structured bundle contents exist, exclude either marked side entirely.
+// Titles without a marker still depend on the identity/quantity/condition checks.
 export function sameBundle(a: string, b: string): boolean {
-  return bundleMarkers(a).join('|') === bundleMarkers(b).join('|');
+  return !hasBundleMarker(a) && !hasBundleMarker(b);
 }
 
 export function deliveredCents(offer: Pick<PriceOffer, 'priceCents' | 'shippingCents'>): number | null {

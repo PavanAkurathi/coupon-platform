@@ -18,6 +18,8 @@ const SEEN_KEY = 'priceSeen';
 const SEEN_LIMIT = 300;
 const SEEN_KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 const SERVICE_TIMEOUT_MS = 2500;
+let onSavedObservation: ((product: PageProduct) => Promise<void>) | undefined;
+export function onProductObserved(callback: (product: PageProduct) => Promise<void>) { onSavedObservation = callback; }
 
 async function seenProducts(): Promise<PageProduct[]> {
   const stored = (await chrome.storage.local.get(SEEN_KEY))[SEEN_KEY];
@@ -32,6 +34,7 @@ export function rememberProduct(product: PageProduct): Promise<void> {
     const kept = (await seenProducts()).filter((item) => Date.parse(item.observedAt) > cutoff
       && !(sameMerchant(item.merchantDomain, product.merchantDomain) && sameProduct(item.identity, product.identity)));
     await chrome.storage.local.set({ [SEEN_KEY]: [product, ...kept].slice(0, SEEN_LIMIT) });
+    await onSavedObservation?.(product);
   }).catch(() => undefined);
   return writes;
 }

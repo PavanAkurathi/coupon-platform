@@ -222,6 +222,7 @@ function hideAmazonMode(supported: boolean) {
 async function refresh() {
   state = popupStatusSchema.parse(await request({ type: "status" }));
   const hasPrice = renderPrice(state.price);
+  el('hold-save-item').hidden = !state.price?.product;
   renderPriceAlerts(state.priceAlerts, refresh);
 
   if (state.amazonCheckout !== undefined) {
@@ -314,6 +315,17 @@ el<HTMLButtonElement>("checkout-refresh").addEventListener("click", async () => 
   checkoutWithoutAmounts("Checking totals.", "Reading Amazon's order summary…");
   try { await refresh(); }
   catch (error) { checkoutWithoutAmounts("Check your order summary.", error instanceof Error ? error.message : "Could not read the order summary.", true); }
+  finally { button.disabled = false; }
+});
+el<HTMLButtonElement>('hold-open-list').addEventListener('click', async () => {
+  try { await chrome.tabs.create({ url: chrome.runtime.getURL('dashboard/index.html') }); }
+  catch { el('hold-save-status').textContent = 'Could not open your list. Try again.'; }
+});
+el<HTMLButtonElement>('hold-save-item').addEventListener('click', async () => {
+  const button = el<HTMLButtonElement>('hold-save-item'); button.disabled = true;
+  el('hold-save-status').textContent = 'Saving this product…';
+  try { await request({ type: 'hold-save-page' }); el('hold-save-status').textContent = 'Saved. Open My Hold list to set a target price.'; }
+  catch (error) { el('hold-save-status').textContent = error instanceof Error ? error.message : 'Could not save this item.'; }
   finally { button.disabled = false; }
 });
 void refresh().catch(async (error: unknown) => {

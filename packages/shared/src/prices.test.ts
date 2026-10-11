@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import {
   brandsCompatible, cleanProductUrl, comparableOffers, compareOffers, normalizeGtin, normalizeModel, offerFromPage,
-  pageProductSchema, priceComparisonSchema, priceOfferSchema, productIdentityKey, sameProduct, type PageProduct, type PriceOffer,
+  pageProductSchema, priceComparisonSchema, priceOfferSchema, productIdentityKey, productIdentitySchema, sameBundle, sameProduct, type PageProduct, type PriceOffer,
 } from './prices';
 
 const now = new Date('2026-10-08T23:30:00.000Z');
@@ -149,6 +149,19 @@ test('offers and comparisons reject inconsistent data', () => {
   expect(pageProductSchema.safeParse({...amazon, identity: {...amazon.identity, model: 'All In One', gtin: null}}).success).toBe(false);
 });
 
+test('generic bundle labels never prove equal contents or protection duration', () => {
+  const base = { ...walmartXm5Bundle, priceCents: 40000 };
+  const different = { ...offerFromPage(bestBuyXm5), priceCents: 30000, shippingCents: 0,
+    title: 'Sony WH1000XM5/B Bundle with 4 year Protection Plan and a different case' };
+  expect(compareOffers(base, [different], { now }).status).toBe('not_checked');
+  expect(sameBundle(base.title, base.title)).toBe(false);
+  for (const marker of ['protection-plan', 'protection\u00a0\u00a0pack', 'extended‑warranty', 'Apple Care', 'Accidental—Protection']) {
+    expect(sameBundle(bestBuyXm5.title, `Sony headphones with ${marker}`)).toBe(false);
+    expect(sameBundle(`Sony headphones with ${marker}`, bestBuyXm5.title)).toBe(false);
+  }
+  expect(sameBundle('Sony WH-1000XM5 headphones', 'Sony WH1000XM5/B wireless headphones')).toBe(true);
+});
+
 test('a matching UPC outweighs a store suffix on the model code, and nothing else', () => {
   // October 10, 2026: Lodge's 10.25 in. skillet is L8SK3 at Walmart and L8SK3PLT at Amazon, same UPC.
   const walmart = { brand: 'Lodge', model: 'L8SK3', gtin: '00075536300801', variant: null, packQuantity: 1, condition: 'new' as const };
@@ -162,4 +175,11 @@ test('a matching UPC outweighs a store suffix on the model code, and nothing els
   expect(sameProduct(walmart, { ...amazon, gtin: '00075536300818' })).toBe(false);
   expect(sameProduct(walmart, { ...amazon, brand: null })).toBe(false);
   expect(sameProduct(walmart, { ...amazon, brand: 'Victoria' })).toBe(false);
+  const normalized = productIdentitySchema.parse({ ...walmart, gtin: '075536300801' });
+  expect(sameProduct(normalized, amazon)).toBe(true);
+  expect(sameProduct({ ...walmart, brand: null }, amazon)).toBe(false);
+  expect(sameProduct({ ...walmart, gtin: null }, amazon)).toBe(false);
+  expect(sameProduct(walmart, { ...amazon, condition: 'used' })).toBe(false);
+  expect(sameProduct(walmart, { ...amazon, packQuantity: 2 })).toBe(false);
+  expect(sameProduct({ ...walmart, variant: 'Black' }, { ...amazon, variant: 'Silver' })).toBe(false);
 });

@@ -16,8 +16,8 @@ const ORIGINS = {
 };
 const WEB_EXT = "web-ext@10.7.0";
 // What Mozilla needs to rebuild the extension, and nothing else.
-const SOURCE_PATHS = ["package.json", "bun.lock", "tsconfig.base.json", "turbo.json", "apps/extension", "packages/shared"];
-const SOURCE_EXCLUDES = ["apps/extension/dist", "apps/extension/dist-firefox", "apps/extension/beta", "apps/extension/release", "apps/extension/e2e", "apps/extension/demo"];
+const SOURCE_PATHS = ["package.json", "bun.lock", "tsconfig.base.json", "turbo.json", "apps/extension", "apps/dashboard", "packages/shared"];
+const SOURCE_EXCLUDES = ["apps/extension/dist", "apps/extension/dist-firefox", "apps/extension/beta", "apps/extension/release", "apps/extension/e2e", "apps/extension/demo", "apps/dashboard/dist"];
 
 const { values: args } = parseArgs({
   args: Bun.argv.slice(2), strict: true,
@@ -88,7 +88,7 @@ try {
   await writeFile(join(source, "SOURCE-BUILD.md"), [
     `# Building Hold ${version} for Firefox`,
     "",
-    "The submitted extension is bundled and minified with Bun from the TypeScript in `apps/extension/src` and `packages/shared/src`.",
+    "The submitted extension is bundled and minified with Bun from the TypeScript in `apps/extension/src`, `apps/dashboard/src` and `packages/shared/src`.",
     "",
     "1. Install Bun 1.3.14 (https://bun.sh): `curl -fsSL https://bun.sh/install | bash -s bun-v1.3.14`",
     "2. In this folder: `bun install --frozen-lockfile`",

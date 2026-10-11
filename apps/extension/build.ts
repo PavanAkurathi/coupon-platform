@@ -96,6 +96,14 @@ for (const entry of entries) {
   bundles.set(`${entry}.js`, await result.outputs[0]!.text());
 }
 const staticFiles = ["popup.html", "popup.css", ...(browser === "chrome" ? ["offscreen.html"] : []), "icon.svg", ...ICON_SIZES.map((size) => `icon-${size}.png`)];
+const dashboard = await Bun.build({
+  entrypoints: [resolve(dir, '../dashboard/src/main.ts')], target: 'browser', format: 'esm', minify: true,
+  banner: ZOD_JITLESS, define: { __API_ORIGIN__: JSON.stringify(apiOrigin) },
+});
+if (!dashboard.success || dashboard.outputs.length !== 1) throw new AggregateError(dashboard.logs, 'Dashboard build failed');
+bundles.set('dashboard/main.js', await dashboard.outputs[0]!.text());
+const dashboardAssets = new Map<string, string>();
+for (const file of ['index.html', 'styles.css']) dashboardAssets.set(file, await Bun.file(resolve(dir, `../dashboard/public/${file}`)).text());
 // Stores the worker checks live for price comparisons (see src/store-lookups.ts).
 const LIVE_STORE_ORIGINS = ["https://www.amazon.com", "https://www.walmart.com"];
 
@@ -145,7 +153,9 @@ if (existsSync(outdir) && (await readdir(outdir)).length && !existsSync(`${outdi
 }
 await rm(outdir, { recursive: true, force: true });
 await mkdir(outdir, { recursive: true });
+await mkdir(`${outdir}/dashboard`, { recursive: true });
 for (const [file, text] of bundles) await Bun.write(`${outdir}/${file}`, text);
+for (const [file, text] of dashboardAssets) await Bun.write(`${outdir}/dashboard/${file}`, text);
 for (const file of staticFiles) await copyFile(`${dir}/public/${file}`, `${outdir}/${file}`);
 await Bun.write(`${outdir}/manifest.json`, `${manifestText}\n`);
 console.log(`Extension ready (${target}, ${browser}, API ${apiOrigin}, prices ${priceApiOrigin ?? "this browser only"}): ${relative(process.cwd(), outdir) || "."}`);

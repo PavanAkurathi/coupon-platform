@@ -23,13 +23,16 @@ describe("store builds", () => {
     expect(existsSync(join(outdir, "offscreen.js"))).toBe(true);
     expect(manifest.browser_specific_settings).toBeUndefined();
     expect(manifest.description.length).toBeLessThanOrEqual(132);
+    expect(existsSync(join(outdir, "dashboard/index.html"))).toBe(true);
+    expect(existsSync(join(outdir, "dashboard/styles.css"))).toBe(true);
+    expect(manifest.web_accessible_resources).toBeUndefined();
     // The Chrome worker leaves page parsing to the offscreen document.
     expect(await Bun.file(join(outdir, "worker.js")).text()).not.toContain("parseFromString");
   }, 60_000);
 
   test("zod never compiles code with new Function in any bundle", async () => {
     const { outdir } = await build("chrome");
-    for (const file of ["worker.js", "popup.js", "price-content.js", "amazon-content.js", "shopify-content.js", "offscreen.js"]) {
+    for (const file of ["worker.js", "popup.js", "price-content.js", "amazon-content.js", "shopify-content.js", "offscreen.js", "dashboard/main.js"]) {
       expect((await Bun.file(join(outdir, file)).text()).startsWith("globalThis.__zod_globalConfig={jitless:true};")).toBe(true);
     }
   }, 60_000);
@@ -48,5 +51,6 @@ describe("store builds", () => {
     expect(manifest.browser_specific_settings.gecko_android).toEqual({ strict_min_version: "142.0" });
     expect(await Bun.file(join(outdir, "worker.js")).text()).not.toMatch(/offscreen\.createDocument|OFFSCREEN_DOCUMENT/);
     expect(manifest.host_permissions).toBeUndefined();
+    expect(existsSync(join(outdir, "dashboard/index.html"))).toBe(true);
   }, 60_000);
 });
