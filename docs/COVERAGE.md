@@ -116,10 +116,12 @@ The first column is Hold's reader on 2 real product pages in the test browser. T
 
 **Fix first:** #1 (open box), #2 (bundles) and #4 (two-price Amazon pages). A wrong alert costs more trust than a missing one.
 
-1. **Staples.** Search and product pages both answer cookie-free, and Hold's current reader already reads its product pages. It needs a search parser and a `connect-src` entry. Gaps: no UPC and no shipping cost in its data.
+1. ~~**Staples.**~~ Refused on October 11 (see below). Search and product pages both answered cookie-free during the coverage run, and Hold's current reader already reads its product pages. It needs a search parser and a `connect-src` entry. Gaps: no UPC and no shipping cost in its data.
 2. **Best Buy.** It is the largest electronics and appliance store here. Search answers with model numbers and prices, but product pages refuse. A check based only on Best Buy's search page needs a founder decision, since there would be no product page to confirm against.
 3. **eBay.** Cookie-free requests are refused. The Browse API connector is built and needs the founder's keys; it is unverified live.
 4. **Newegg.** It answers cookie-free, but needs its own reader for search and product pages (no schema.org data). Electronics only.
 5. **Ulta.** Product pages are readable, but search needs scripts, and it falls outside electronics, appliances and tools.
 
-**Not now:** Target and Costco (need scripts or lack identifiers), and Home Depot, Lowe's, B&H, Macy's, Kohl's and Wayfair (they refuse cookie-free requests).
+**Not now:** Target and Costco (need scripts or lack identifiers), and Home Depot, Lowe's, B&H, Macy's, Kohl's, Wayfair and Staples (they refuse cookie-free requests).
+
+**Update, October 11: Staples refused.** Before building a Staples live check, the first cookie-free request (the MK270 product page from a headless Chromium extension worker, fresh profile, 21:18 UTC) got Akamai 403 "Access Denied" (ref `18.ceb52e17.1791753522.24b5393a`). A retry from a different browser mode was declined as getting around the block. Staples moves to "Not now" and no Staples check ships. The coverage run's earlier 200 responses show its protection varies; that's not a reason to retry.
