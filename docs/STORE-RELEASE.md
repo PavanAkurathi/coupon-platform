@@ -128,5 +128,4 @@ Both packages request `storage`, `activeTab` and `scripting`, plus the optional 
 
 - [ ] Commit the store-release changes, then rerun `release.ts` from the commit.
 - [ ] Put the site, including `privacy.html`, online and use its URL in both stores.
-- [ ] Replace the placeholder contact email.
 - [ ] Load each zip once in its real browser and click "Turn on price alerts".

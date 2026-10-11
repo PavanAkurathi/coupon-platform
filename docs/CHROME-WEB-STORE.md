@@ -4,7 +4,7 @@ Updated October 11, 2026 for the 0.5.1 store build `hold-chrome-0.5.1.zip`. The 
 
 ## Fix before uploading
 
-1. **Host the privacy policy.** `outputs/hold-site/privacy.html` needs a public https URL, such as `https://hold.deals/privacy.html` once the domain exists. Replace the placeholder contact `hello@hold.deals` with a real inbox and delete the yellow note under it.
+1. **Host the privacy policy.** `outputs/hold-site/privacy.html` needs a public https URL, such as `https://hold.deals/privacy.html` once the domain exists. Its contact address is already the founder's Hold inbox, `hold.extensionn@gmail.com`.
 2. **Done in 0.4.1: no UI a reviewer can't use.** A previous extension by the same founder was rejected for "Inaccurate Description – Non functional" because the reviewer could not reproduce its "Authentication". 0.4.0 showed *Community settings → Shopper token* on every non-Amazon page and said "Coupon codes aren't tested on this store yet". In 0.4.1 store builds, the token and share-a-code sections stay hidden and that line is gone. The dev build keeps them for local tests. This was checked in the real popup on October 10, on a product page and on a page with no product. **0.5.1 does the same for My Hold list:** its Coupons tab (no store is enabled for codes) and Rewards tab (rewards don't exist yet) are left out of store builds, and their addresses open the list instead. Show them again only once they have real data.
 3. **Give the reviewer a live example.** Alerts appear only when a cheaper exact match exists at that moment. On submission day, find a product page that shows an alert, and one Amazon product with a clip-on coupon, and put both URLs in the test instructions below. Use the first URL for the Save item steps too: *Save item* appears only on a page Hold can read as a product.
 4. **Landing page mismatch.** `index.html` says prices you viewed are compared "for 12 hours". The code uses them for 15 minutes (`PRICE_EVIDENCE_MAX_AGE_MS`). Change the page, or the code if Codex's speed work changes this.
@@ -114,10 +114,10 @@ No account or login is needed.
 ## Founder's submission checklist
 
 - [ ] Check `hold-chrome-0.5.1.zip` against the `SHA256SUMS` next to it from the coordinating session's final build.
-- [ ] Host `privacy.html` and replace the contact placeholder.
+- [ ] Host `privacy.html`.
 - [ ] Register a developer account at the Chrome Web Store Developer Dashboard with the Google account that will own Hold. There is a one-time $5 fee; pay it yourself.
 - [ ] Turn on 2-Step Verification for that Google account. The dashboard requires it to publish.
-- [ ] In the dashboard's Account tab, set and verify the contact email.
+- [ ] In the dashboard's Account tab, set and verify the contact email: `hold.extensionn@gmail.com`, the address in the privacy policy.
 - [ ] Answer the trader / non-trader question (EU rules). A trader's name, address, phone and email are shown to EU users. A non-trader listing tells EU users that consumer-protection law doesn't apply. It depends on whether you run Hold as a business, so it's your call; ask an advisor if unsure.
 - [ ] Choose visibility. Recommended: **Unlisted** for the beta, so only people with the link can install it. It is still fully reviewed, and you can make it Public later.
 - [ ] Distribution: Free. Regions: United States is enough, since Hold handles US stores and US dollars only.

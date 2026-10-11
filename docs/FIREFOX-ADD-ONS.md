@@ -14,7 +14,7 @@ Updated October 11, 2026 for 0.5.1: `hold-firefox-0.5.1.zip`, with `hold-source-
 
 1. **Shopper token: done in 0.4.1.** Store builds no longer show the shopper-token setting, so nothing in Mozilla's `authenticationInfo` category is collected. The two declared categories, `browsingActivity` and `websiteContent`, are complete.
 2. **Android.** The manifest declares Firefox for Android 142+, so AMO will offer Hold there too. The October 10 live test was on desktop only. Test on Android first, or untick Android under the version's compatibility.
-3. **Privacy policy hosting and contact.** These are the same as for Chrome: host `outputs/hold-site/privacy.html` and replace `hello@hold.deals`.
+3. **Privacy policy hosting.** The same as for Chrome: host `outputs/hold-site/privacy.html`. Its contact address is already `hold.extensionn@gmail.com`.
 4. **Try Save item and My Hold list in Firefox.** So far they have been clicked through only in Chromium: Codex's fixture checks, and a live save on a Best Buy product page on October 11. The Firefox build passes the build tests and Mozilla's linter, but nobody has used the list in Firefox yet.
 
 ## Listing fields
@@ -70,7 +70,7 @@ Privacy policy: <privacy policy URL>
 
 **Release notes (0.5.1):** First release for Firefox.
 
-**Homepage:** `https://hold.deals` (placeholder until the domain exists). **Support email:** a real inbox (placeholder `hello@hold.deals`).
+**Homepage:** `https://hold.deals` (placeholder until the domain exists). **Support email:** `hold.extensionn@gmail.com`.
 
 **License:** your choice. Pick "All Rights Reserved" if Hold isn't open source. The uploaded source zip goes to Mozilla's reviewers, not onto the listing.
 
