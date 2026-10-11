@@ -1,6 +1,6 @@
 # Store release: Chrome Web Store and Firefox Add-ons
 
-Prepared on October 10, 2026. Current package: Hold 0.4.2. Nothing has been submitted. The listing text, screenshots and privacy policy live in [CHROME-WEB-STORE.md](CHROME-WEB-STORE.md), `docs/store-assets/` and `outputs/hold-site/privacy.html` (store-pack session).
+Prepared on October 10, 2026. Current package: Hold 0.5.1 (October 11), built by `release.ts --ref` from the merged commit; the 0.4.x notes below are history. Nothing has been submitted. The listing text, screenshots and privacy policy live in [CHROME-WEB-STORE.md](CHROME-WEB-STORE.md), `docs/store-assets/` and `outputs/hold-site/privacy.html` (store-pack session).
 
 ## Build
 
@@ -112,7 +112,9 @@ Both packages request `storage`, `activeTab` and `scripting`, plus the optional 
 >
 > The "hold" delays the first buy click once while it shows the cheaper offer. The user's next click proceeds normally.
 >
-> **Lint:** the 5 DANGEROUS_EVAL warnings come from zod 4, the validation library, whose code can compile parsers with `new Function`. Every bundle begins with `globalThis.__zod_globalConfig={jitless:true};` (see `build.ts`), so that path never runs, and the extension CSP would block it anyway.
+> **Saved list:** the popup's "Save item" stores the product read from the current tab in extension storage, and "My Hold list" opens the packaged page `dashboard/index.html` to view it, set target prices, and export or import a JSON backup through a normal file download or file picker. The list is never sent anywhere; that page makes no network requests. Only the extension's own popup and list page can read or change the list (checked against the message sender's URL in `watchlist-worker.ts`).
+>
+> **Lint:** the 6 DANGEROUS_EVAL warnings come from zod 4, the validation library, whose code can compile parsers with `new Function`. Every bundle begins with `globalThis.__zod_globalConfig={jitless:true};` (see `build.ts`), so that path never runs, and the extension CSP would block it anyway. The 4 UNSAFE_VAR_ASSIGNMENT warnings are the list page's `innerHTML` templates in `apps/dashboard/src/main.ts`; text from the shopper or a page (titles, links, store names) goes through `esc()` first, links are validated direct https URLs, and the other values are schema-validated numbers, dates and IDs.
 >
 > **Build:** see `SOURCE-BUILD.md` in the source zip. The output is byte-identical to the submitted package.
 >
@@ -120,6 +122,7 @@ Both packages request `storage`, `activeTab` and `scripting`, plus the optional 
 > 1. Turn on price alerts in the popup.
 > 2. Open https://www.bestbuy.com/product/philips-norelco-all-in-one-9000-series-23-piece-trimmer-mg9575-49-silver/J79GGJ9LL9
 > 3. A banner appears if Amazon or Walmart sells the same model for at least $1 less. Prices change, so on some days there is no banner.
+> 4. On the same page, open the popup and press "Save item". Then press "My Hold list ↗": the item is listed with its price and "Seen on store page". Its ••• menu sets a target price; "Settings & data" has Export backup and Import backup.
 
 ## Before submitting
 
