@@ -13,10 +13,12 @@ function nextBadgeGeneration(tabId: number): number {
   badgeGenerations.set(tabId, generation);
   return generation;
 }
-const secureStorage = Promise.all([
+// Firefox has no setAccessLevel: its session storage is already closed to content
+// scripts, and local storage has no switch. Calling it there would stop the worker.
+const secureStorage = typeof chrome.storage.local.setAccessLevel === 'function' ? Promise.all([
   chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
   chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
-]);
+]) : Promise.resolve([]);
 type Merchant = z.infer<typeof merchantsResponseSchema>['merchants'][number];
 
 const SERVICE_UNAVAILABLE = 'The coupon service is unavailable. Please try again shortly.';

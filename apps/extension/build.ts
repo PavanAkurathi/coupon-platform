@@ -3,25 +3,41 @@ import { existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
-// PLACEHOLDER PRODUCT NAME: the founder has not chosen the final name. Change it here
-// only, before any Web Store listing. Keep it neutral (no merchant, competitor or affiliate wording).
+// Product name chosen by the founder on October 9, 2026. Keep it neutral (no merchant, competitor or affiliate wording).
 const PRODUCT_NAME = "Hold";
 const DEV_API_ORIGIN = "http://localhost:3001";
 const DEV_PRICE_API_ORIGIN = "http://localhost:3002";
 const ICON_SIZES = [16, 32, 48, 128];
 const LOCAL_HOST = /(^|\.)localhost$|^127\.|^\[::1\]$/;
 const LOCAL_URL = /https?:\/\/(?:[a-z0-9.-]*localhost|127\.[0-9.]+|\[::1\])\b/;
+// Firefox: the add-on ID is permanent once submitted to addons.mozilla.org.
+// 140 (desktop) and 142 (Android) are the first releases with built-in data collection consent.
+const FIREFOX_ID = "hold@hold.deals";
+const FIREFOX_MIN_VERSION = "140.0";
+const FIREFOX_ANDROID_MIN_VERSION = "142.0";
+// What leaves the browser (docs/STORE-RELEASE.md): the product read from the page and the
+// store's domain go to the price service, and the product's name or barcode to Amazon and Walmart searches.
+const FIREFOX_DATA_COLLECTION = ["browsingActivity", "websiteContent"];
+const STORE_DESCRIPTION_MAX = 132;
+const ZOD_JITLESS = "globalThis.__zod_globalConfig={jitless:true};";
 const dir = import.meta.dir;
 
 type Manifest = {
-  name: string; icons: Record<string, string>; host_permissions?: string[];
-  content_scripts?: { matches: string[]; js: string[] }[]; background: { service_worker: string }; optional_host_permissions?: string[];
+  name: string; description: string; icons: Record<string, string>; permissions: string[]; host_permissions?: string[]; minimum_chrome_version?: string;
+  content_scripts?: { matches: string[]; js: string[] }[]; background: { service_worker?: string; scripts?: string[]; type?: string }; optional_host_permissions?: string[];
   action: { default_popup: string; default_icon: Record<string, string> }; content_security_policy: { extension_pages: string };
+  browser_specific_settings?: {
+    gecko: { id: string; strict_min_version: string; data_collection_permissions: { required: string[] } };
+    gecko_android: { strict_min_version: string };
+  };
 };
 
 const { values: args } = parseArgs({
   args: Bun.argv.slice(2), strict: true,
-  options: { target: { type: "string", default: "dev" }, outdir: { type: "string" }, icons: { type: "boolean", default: false } },
+  options: {
+    target: { type: "string", default: "dev" }, browser: { type: "string", default: "chrome" },
+    outdir: { type: "string" }, icons: { type: "boolean", default: false },
+  },
 });
 
 if (args.icons) {
@@ -43,6 +59,8 @@ if (args.icons) {
 
 const target = args.target;
 if (target !== "dev" && target !== "beta") throw new Error(`Unknown --target "${target}". Use dev or beta.`);
+const browser = args.browser;
+if (browser !== "chrome" && browser !== "firefox") throw new Error(`Unknown --browser "${browser}". Use chrome or firefox.`);
 if (target === "dev" && process.env.COUPON_API_ORIGIN) console.warn(`COUPON_API_ORIGIN is ignored for dev builds; using ${DEV_API_ORIGIN}.`);
 const apiOrigin = target === "dev" ? DEV_API_ORIGIN : betaApiOrigin(process.env.COUPON_API_ORIGIN);
 // The price service is optional: without one, comparisons use prices seen in this browser only.
@@ -62,18 +80,22 @@ function betaApiOrigin(raw: string | undefined, name = "COUPON_API_ORIGIN"): str
 
 // Bundle and check everything in memory first: a failed build never touches the previous output.
 // content.js is the localhost demo checkout script; beta ships without it.
-const entries = target === "dev" ? ["worker", "popup", "content", "amazon-content", "shopify-content", "price-content", "offscreen"] : ["worker", "popup", "amazon-content", "shopify-content", "price-content", "offscreen"];
+// offscreen is Chrome's DOMParser stand-in; Firefox's background page parses directly.
+const entries = ["worker", "popup", ...(target === "dev" ? ["content"] : []), "amazon-content", "shopify-content", "price-content", ...(browser === "chrome" ? ["offscreen"] : [])];
 const bundles = new Map<string, string>();
 for (const entry of entries) {
   const result = await Bun.build({
     entrypoints: [`${dir}/src/${entry}.ts`], target: "browser",
     format: entry === "worker" || entry === "popup" || entry === "offscreen" ? "esm" : "iife", minify: true,
-    define: { __BUILD_TARGET__: JSON.stringify(target), __API_ORIGIN__: JSON.stringify(apiOrigin), __PRICE_API_ORIGIN__: JSON.stringify(priceApiOrigin) },
+    define: { __BUILD_TARGET__: JSON.stringify(target), __BROWSER__: JSON.stringify(browser), __API_ORIGIN__: JSON.stringify(apiOrigin), __PRICE_API_ORIGIN__: JSON.stringify(priceApiOrigin) },
+    // zod compiles parsers with new Function unless jitless. Extension CSP blocks that and
+    // logs a violation for zod's probe; jitless never tries. Set before zod first loads.
+    banner: ZOD_JITLESS,
   });
   if (!result.success || result.outputs.length !== 1) throw new AggregateError(result.logs, `${entry} build failed`);
   bundles.set(`${entry}.js`, await result.outputs[0]!.text());
 }
-const staticFiles = ["popup.html", "popup.css", "offscreen.html", "icon.svg", ...ICON_SIZES.map((size) => `icon-${size}.png`)];
+const staticFiles = ["popup.html", "popup.css", ...(browser === "chrome" ? ["offscreen.html"] : []), "icon.svg", ...ICON_SIZES.map((size) => `icon-${size}.png`)];
 // Stores the worker checks live for price comparisons (see src/store-lookups.ts).
 const LIVE_STORE_ORIGINS = ["https://www.amazon.com", "https://www.walmart.com"];
 
@@ -87,12 +109,25 @@ if (target === "beta") {
   if (!manifest.host_permissions?.length) delete manifest.host_permissions;
   if (!manifest.content_scripts?.length) delete manifest.content_scripts;
 }
+if (browser === "firefox") {
+  // Firefox has no extension service workers or offscreen documents: the same worker
+  // runs as a background page. Chrome ignores background.scripts, Firefox needs it.
+  manifest.background = { scripts: [manifest.background.service_worker!], type: "module" };
+  manifest.permissions = manifest.permissions.filter((permission) => permission !== "offscreen");
+  delete manifest.minimum_chrome_version;
+  manifest.browser_specific_settings = {
+    gecko: { id: FIREFOX_ID, strict_min_version: FIREFOX_MIN_VERSION, data_collection_permissions: { required: FIREFOX_DATA_COLLECTION } },
+    gecko_android: { strict_min_version: FIREFOX_ANDROID_MIN_VERSION },
+  };
+}
+// Both stores reject a manifest description over 132 characters.
+if (manifest.description.length > STORE_DESCRIPTION_MAX) throw new Error(`Manifest description is ${manifest.description.length} characters; the stores allow ${STORE_DESCRIPTION_MAX}.`);
 const manifestText = JSON.stringify(manifest, null, 2);
 if (/__[A-Z_]+__/.test(manifestText)) throw new Error("Manifest template has an unfilled placeholder.");
 // price-content.js is injected at runtime (popup or registered after the opt-in), not listed in the manifest.
 if (!bundles.has("price-content.js")) throw new Error("price-content.js is missing.");
 const referenced = [
-  manifest.background.service_worker, manifest.action.default_popup, ...Object.values(manifest.icons),
+  ...(manifest.background.service_worker ? [manifest.background.service_worker] : manifest.background.scripts ?? []), manifest.action.default_popup, ...Object.values(manifest.icons),
   ...Object.values(manifest.action.default_icon), ...(manifest.content_scripts ?? []).flatMap((script) => script.js),
 ];
 for (const file of referenced) if (!bundles.has(file) && !staticFiles.includes(file)) throw new Error(`Manifest references missing file ${file}`);
@@ -103,8 +138,8 @@ if (target === "beta") {
   if (LOCAL_URL.test(await Bun.file(`${dir}/public/popup.html`).text())) console.warn("Warning: beta popup.html still links to the localhost demo checkout.");
 }
 
-// The default dev outdir is the unpacked extension the founder has installed. Beta never writes there by default.
-const outdir = resolve(dir, args.outdir ?? (target === "dev" ? "dist" : "beta/dist"));
+// The default dev Chrome outdir is the unpacked extension the founder has installed. Beta and Firefox never write there by default.
+const outdir = resolve(dir, args.outdir ?? `${target === "dev" ? "" : "beta/"}dist${browser === "firefox" ? "-firefox" : ""}`);
 if (existsSync(outdir) && (await readdir(outdir)).length && !existsSync(`${outdir}/manifest.json`)) {
   throw new Error(`Refusing to clear ${outdir}: it is not a previous extension build.`);
 }
@@ -113,4 +148,4 @@ await mkdir(outdir, { recursive: true });
 for (const [file, text] of bundles) await Bun.write(`${outdir}/${file}`, text);
 for (const file of staticFiles) await copyFile(`${dir}/public/${file}`, `${outdir}/${file}`);
 await Bun.write(`${outdir}/manifest.json`, `${manifestText}\n`);
-console.log(`Extension ready (${target}, API ${apiOrigin}, prices ${priceApiOrigin ?? "this browser only"}): ${relative(process.cwd(), outdir) || "."}`);
+console.log(`Extension ready (${target}, ${browser}, API ${apiOrigin}, prices ${priceApiOrigin ?? "this browser only"}): ${relative(process.cwd(), outdir) || "."}`);

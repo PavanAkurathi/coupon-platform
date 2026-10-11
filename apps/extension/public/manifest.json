@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "__PRODUCT_NAME__",
-  "version": "0.3.5",
-  "minimum_chrome_version": "120",
-  "description": "Hold before you buy: warns when the same item is cheaper elsewhere, finds cheaper Amazon sellers and Amazon coupons. Your savings stay yours.",
+  "version": "0.4.0",
+  "minimum_chrome_version": "140",
+  "description": "Hold before you buy: warns when the same item is cheaper at another store, and finds cheaper Amazon sellers and coupons.",
   "icons": { "16": "icon-16.png", "32": "icon-32.png", "48": "icon-48.png", "128": "icon-128.png" },
   "permissions": ["storage", "activeTab", "scripting", "offscreen"],
   "host_permissions": ["http://localhost/*"],

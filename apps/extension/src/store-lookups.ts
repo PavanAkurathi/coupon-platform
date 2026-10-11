@@ -1,10 +1,11 @@
 import { amazonProductAsin, productIdentityKey, pageProductSchema, sameMerchant, sameProduct, PRICE_EVIDENCE_MAX_AGE_MS, type PageProduct, type PriceCoverage, type ProductIdentity } from '@repo/shared';
+import { parseStoreHtml, type ParseRequest } from './parse-html';
 import type { ProductRead } from './product-reader';
 import type { SearchCandidate, SearchStore } from './search-parsers';
 
 // Live checks: when the shopper views a product, the worker fetches other stores'
 // public search and product pages from this browser (no cookies sent), parses them
-// in the offscreen document and keeps only exact matches. Verified October 8, 2026:
+// inert (Chrome: offscreen document; Firefox: background page) and keeps only exact matches. Verified October 8, 2026:
 // Amazon and Walmart answer these requests; eBay (403) and Best Buy product pages
 // refuse them, Target and Costco render results only with scripts. A store that
 // blocks is reported as unavailable and rested; nothing tries to get around it.
@@ -61,8 +62,15 @@ async function fetchPage(url: string, host: string, signal?: AbortSignal): Promi
   return html;
 }
 
+declare const __BROWSER__: string | undefined;
+// Firefox runs the background as a page with a DOMParser and has no offscreen API.
+async function inBackgroundPage<T>(message: ParseRequest): Promise<T> {
+  const parsed = parseStoreHtml(message);
+  if (!parsed.ok) throw new Error(parsed.error);
+  return parsed.data as T;
+}
 let creating: Promise<void> | null = null;
-async function offscreen<T>(message: { type: 'parse-product' | 'parse-search'; html: string; url: string; store?: SearchStore; offersHtml?: string }): Promise<T> {
+async function inOffscreenDocument<T>(message: ParseRequest): Promise<T> {
   const open = await chrome.runtime.getContexts({ contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT] });
   if (!open.length) {
     creating ??= chrome.offscreen.createDocument({ url: 'offscreen.html', reasons: [chrome.offscreen.Reason.DOM_PARSER],
@@ -73,6 +81,9 @@ async function offscreen<T>(message: { type: 'parse-product' | 'parse-search'; h
   if (!reply?.ok) throw new Error(reply?.error ?? 'Parser did not answer.');
   return reply.data as T;
 }
+// Store builds name the browser, so the unused path drops out of the bundle; tests detect it.
+const parseFetched: <T>(message: ParseRequest) => Promise<T> =
+  (typeof __BROWSER__ === 'string' ? __BROWSER__ === 'firefox' : typeof DOMParser === 'function') ? inBackgroundPage : inOffscreenDocument;
 
 const alnum = (text: string) => text.toUpperCase().replace(/[^A-Z0-9]/g, '');
 function pick(candidates: SearchCandidate[], identity: ProductIdentity, byGtin: boolean): SearchCandidate[] {
@@ -90,18 +101,18 @@ function pick(candidates: SearchCandidate[], identity: ProductIdentity, byGtin: 
 // B0G22WX3YR: $96.49 new vs $81.23 used) names it. Fetched only when needed.
 async function readCandidate(store: Store, url: string, signal?: AbortSignal): Promise<ProductRead> {
   const html = await fetchPage(url, store.host, signal);
-  const first = await offscreen<ProductRead>({ type: 'parse-product', html, url });
+  const first = await parseFetched<ProductRead>({ type: 'parse-product', html, url });
   const asin = store.key === 'amazon' && first.status === 'unrecognized' ? amazonProductAsin(url) : null;
   if (!asin) return first;
   const offersHtml = await fetchPage(`https://www.amazon.com/gp/product/ajax/aodAjaxMain/ref=dp_aod_ALL_mbc?asin=${asin}&pc=dp&experienceId=aodAjaxMain`, store.host, signal);
-  return offscreen<ProductRead>({ type: 'parse-product', html, url, offersHtml });
+  return parseFetched<ProductRead>({ type: 'parse-product', html, url, offersHtml });
 }
 
 async function checkStore(store: Store, identity: ProductIdentity, signal?: AbortSignal): Promise<Cached> {
   const search = store.search(identity);
   if (!search) return { at: Date.now(), status: 'unavailable', products: [] };
   try {
-    const candidates = pick(await offscreen<SearchCandidate[]>({ type: 'parse-search', store: store.key, html: await fetchPage(search.url, store.host, signal), url: search.url }),
+    const candidates = pick(await parseFetched<SearchCandidate[]>({ type: 'parse-search', store: store.key, html: await fetchPage(search.url, store.host, signal), url: search.url }),
       identity, search.byGtin);
     const reads = await Promise.allSettled(candidates.map((candidate) => readCandidate(store, candidate.url, signal)));
     const products = reads.flatMap((read) => {

@@ -9,3 +9,5 @@ test-results/
 playwright-report/
 .DS_Store
 *.zip
+dist-firefox/
+apps/extension/release/
