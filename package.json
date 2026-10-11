@@ -8,6 +8,7 @@
     "build": "turbo build",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
+    "verify:integration": "bun --no-env-file services/coupon-service/tests/verify-integration.ts",
     "dev": "turbo dev",
     "db:migrate": "bun run --cwd services/coupon-service db:migrate",
     "db:seed": "bun run --cwd services/coupon-service db:seed",

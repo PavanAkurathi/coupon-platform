@@ -35,7 +35,7 @@ This workspace's ignored `.env` uses `55432` / `56379` to coexist with your othe
 
 For local API development, start only `postgres redis`, copy `.env.example` to `services/coupon-service/.env`, adjust its database/cache ports, then run `bun run db:migrate`, `bun run db:seed`, and `bun run --cwd services/coupon-service dev`.
 
-Run the live integration checks against a disposable/local database and running API with `DATABASE_URL=postgres://coupon:local-development-only@localhost:5432/coupons bun run --cwd services/coupon-service test:integration`. They create and clean their own test records.
+Run `bun run verify:integration` for the HTTP, Postgres, operator CLI and database rate-limiter checks. It requires Docker with the `postgres:16-alpine` image already installed. The command creates a fresh database in memory, applies the migrations, starts a temporary API on loopback, runs the checks and removes its container and server. It ignores existing database/API settings and does not rebuild the installed extension, use a persistent volume or contact the hosted beta. This validates the Postgres limiter used by the Neon entry; it does not validate Redis or the deployed function.
 
 For a browser smoke test against the running, seeded stack and demo, run `bun run --cwd apps/extension browser:install` once, then `bun run --cwd apps/extension test:e2e`. It opens an isolated browser with the real extension, checks coupon application, existing discounts, creator attribution preservation and the completed receipt, then closes its browser. `bun run --cwd apps/extension test:e2e:amazon` checks the Amazon reader and complete extension against isolated synthetic fixtures; it never contacts Amazon. Live Chrome validation is recorded separately.
 

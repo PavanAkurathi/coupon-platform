@@ -16,9 +16,18 @@ test('a configured single-value proxy header identifies each shopper', () => {
 
 test('forwarded lists use the entry added by the trusted proxy, not a forged prefix', () => {
   const one = clientIpConfig({ CLIENT_IP_HEADER: 'x-forwarded-for' });
+  expect(clientAddress(headers({ 'x-forwarded-for': '203.0.113.9' }), '10.0.0.2', one)).toBe('203.0.113.9');
   expect(clientAddress(headers({ 'x-forwarded-for': '198.51.100.7, 203.0.113.9' }), '10.0.0.2', one)).toBe('203.0.113.9');
   const two = clientIpConfig({ CLIENT_IP_HEADER: 'x-forwarded-for', TRUSTED_PROXY_HOPS: '2' });
+  expect(clientAddress(headers({ 'x-forwarded-for': '203.0.113.9, 10.0.0.9' }), '10.0.0.2', two)).toBe('203.0.113.9');
   expect(clientAddress(headers({ 'x-forwarded-for': '198.51.100.7, 203.0.113.9, 10.0.0.9' }), '10.0.0.2', two)).toBe('203.0.113.9');
+});
+
+test('a forwarded chain shorter than the configured proxy depth is not trusted', () => {
+  const config = clientIpConfig({ CLIENT_IP_HEADER: 'x-forwarded-for', TRUSTED_PROXY_HOPS: '2' });
+  const shortChain = headers({ 'x-forwarded-for': '203.0.113.9' });
+  expect(clientAddress(shortChain, '10.0.0.2', config)).toBe('10.0.0.2');
+  expect(clientAddress(shortChain, undefined, config)).toBeUndefined();
 });
 
 test('missing or malformed header values fall back to the socket address', () => {

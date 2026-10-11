@@ -1,6 +1,6 @@
 # Codex / Claude Code work split
 
-Updated October 8, 2026. Codex is paused until its weekly reset; the founder reassigned Codex's scope to the Claude coordinating session (see the last section). Shared launch requirement: Amazon plus 3–5 Shopify stores, real coupon savings, protected attribution, neutral naming. Founder availability has increased; quality gates stay unchanged.
+Updated October 10, 2026. Codex resumed at the founder's request after reading Claude's completed October 8 handoff and local commits through `8c90cac`. Shared launch requirement: Amazon plus 3–5 Shopify stores, real coupon savings, protected attribution, neutral naming. Founder availability has increased; quality gates stay unchanged.
 
 ## Ownership
 
@@ -164,3 +164,12 @@ The founder supplied codes in chat. They were used for observation only and are 
 - **Tests (fresh copy of the tree):** typecheck 5/5 and 109 unit tests. Browser checks: 15 demo, 27 Amazon reader, 15 Amazon checkout reader, 9 Amazon checkout MV3, 19 Amazon MV3, 17 Shopify reader, 9 Shopify adapter (including a late field reset and a slow valid code after a rejection), 10 Shopify MV3. Live: adapter 13/13 on Allbirds, plus the real extension end to end on Allbirds.
 - **Integration note:** the coordinator ran `bun run build` in `apps/extension` once by mistake, which rewrote the founder's installed `dist`. That build was later confirmed byte-identical to the final verified build. Chrome picks it up on the next extension reload.
 - **Not done:** enabling Allbirds in the beta database, and reviewed public codes with source evidence. Both are founder/operator decisions.
+
+## October 10 return / integration packet (I3 — Codex, in progress)
+
+- Review Claude's committed backend/shared and Shopify changes; preserve extension ownership and the existing installed builds and archives. Extension findings go through a handoff.
+- Codex files: `services/coupon-service/tests/verify-integration.ts`, root `package.json`, `README.md`, `STATUS.md`, `docs/BETA-READINESS.md` and this log. Add a disposable local Postgres/HTTP verification command; no existing database or hosted-service changes. I3-B owns only `src/client-ip.ts` and `test/client-ip.test.ts` under the coupon service to fix rejection of forwarding chains shorter than the configured trusted proxy depth.
+- Parallel work is read-only review plus scratch-copy builds, unit tests and isolated browser fixtures. No live shopping, cookie access, installed-profile changes, publication or deployment in this packet.
+- Results, remaining risks and cross-owner requests will be recorded before handoff.
+- **I3-B — Codex, completed:** short forwarding chains cannot bypass the configured trusted proxy depth. A failing regression preceded the fix; 29 backend unit tests (95 assertions) and the backend typecheck passed. Current hosted configuration leaves the forwarded header unset, so this repairs the optional proxy path.
+- **C6 — Claude Code, assigned:** fix the three reproduced Shopify trial safety defects in [the bounded handoff](CLAUDE-SHOPIFY-SAFETY-HANDOFF.md). Only the adapter and its existing fixture suite are assigned. Equal-subtotal cart identity needs a later coordinated contract; no claims of full cart identity protection.

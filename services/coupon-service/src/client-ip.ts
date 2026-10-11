@@ -23,6 +23,7 @@ export function clientAddress(headers: Headers, socketAddress: string | undefine
   // X-Forwarded-For style lists: each trusted proxy appends one entry, so the
   // client is the entry just before the trusted ones. Earlier entries are forgeable.
   const entries = raw.split(',').map((entry) => entry.trim());
-  const candidate = entries.length > 1 ? entries[entries.length - config.trustedHops] : entries[0];
+  if (entries.length < config.trustedHops) return socketAddress;
+  const candidate = entries[entries.length - config.trustedHops];
   return candidate && isIP(candidate) ? candidate : socketAddress;
 }
