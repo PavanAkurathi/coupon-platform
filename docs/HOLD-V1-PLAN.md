@@ -1,5 +1,7 @@
 # Hold v1 plan
 
+**October 15 founder requirement:** the [trust charter](TRUST-CHARTER.md) is a hard constraint on every feature and commercial decision. Revenue and growth cannot override it. Existing no-tracking and monetization gates remain in force.
+
 Decided October 10, 2026 by the founder: **honest commission**. 0.4.2 is accurate but can see too few stores, has no working coupons and earns nothing. v1 fixes all three with affiliate networks, under rules that keep Hold on the shopper's side. Until v1 meets the launch bar, Hold stays an unlisted beta.
 
 ## Launch bar

@@ -1,5 +1,7 @@
 # Codex / Claude Code work split
 
+**Founder hard rule, October 15:** follow the [trust charter](TRUST-CHARTER.md) in all work. Shopper, creator and merchant trust takes precedence over growth and revenue. Recorded in `AGENTS.md` and linked from the v1 plan. Documentation only; no application behavior changed, so application tests were not repeated. This records requirements, not a completed implementation audit.
+
 Updated October 11, 2026. Main is merged through `dcf77fe`. The newer [Hold v1 plan](HOLD-V1-PLAN.md) and `../CODEX-V1-PACKET.md` updates replace the earlier launch scope below. The founder now requests the extension plus a companion shopping dashboard. Historical packets remain recorded here; [STATUS.md](../STATUS.md) is the current checkpoint.
 
 ## Ownership

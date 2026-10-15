@@ -2,6 +2,8 @@
 
 Read `docs/COORDINATION.md` and `../PRODUCT-BRIEF.md` before a new work packet.
 
+- Founder hard rule: follow `docs/TRUST-CHARTER.md`. Never deceive shoppers or businesses, take another party's attribution, distort recommendations for commission or invent savings. These requirements take precedence over growth and revenue goals; they do not authorize new tracking or monetization behavior.
+
 - This is one product. Codex and Claude Code use the same product requirements and Zod wire contracts in `packages/shared`.
 - Work only in your assigned files. Request a contract change through a handoff instead of editing another owner's files.
 - Do not alter existing user files, archives, `.env`, installed-browser profiles or credentials. Do not inspect secret files for context.
