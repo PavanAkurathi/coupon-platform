@@ -1,15 +1,22 @@
 import { candidatesResponseSchema, checkoutReadySchema, couponPreflightResponseSchema, couponReportSchema, couponReportResponseSchema, merchantsResponseSchema, amazonProductAsin, amazonInspectionSchema, amazonFocusResponseSchema, amazonCheckoutInspectionSchema, isAmazonCheckout, isShopifyCheckout, shopifyCheckoutInspectionSchema } from '@repo/shared';
 import type { AmazonInspection, AmazonFocusRequest, AmazonCheckoutInspection, CheckoutInspection, ShopifyCheckoutInspection } from '@repo/shared';
 import { z } from 'zod';
-import { API_ORIGIN, inspectionSchema, popupRequestSchema, resultMatchesCheckout, trialResultSchema, unavailableCheckout, type PopupStatus, type Reply, type TrialResult } from './protocol';
+import { API_ORIGIN, inspectionSchema, popupRequestSchema, surfaceRequestSchema, resultMatchesCheckout, trialResultSchema, unavailableCheckout, type CouponCandidates, type PopupStatus, type Reply, type TrialResult } from './protocol';
 import { adapterFor } from './adapters/registry';
-import { runApprovedTrial } from './gate';
+import { filterSafeCandidates, runApprovedTrial } from './gate';
+import { bindSurfacePage, isCouponSurface } from './surface';
 import { alertsEnabled, comparisonFor, disablePriceAlerts, forgetProducts, popupPrice, syncPriceAlerts, trustedPageProduct } from './price-worker';
 import { onProductObserved } from './price-worker';
 import { watchlistRequestSchema } from '@repo/shared';
 import { createWatchlistStore, watchlistSender } from './watchlist-worker';
 
 const running = new Set<number>();
+const pageRevisions = new Map<number, number>();
+const SHOPIFY_TRIALS_PAUSED = 'Coupon testing is not available for this checkout yet. Review any codes on the store page.';
+declare const __SIDE_PANEL__: boolean | undefined;
+if (typeof __SIDE_PANEL__ !== 'undefined' && __SIDE_PANEL__) {
+  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
+}
 const badgeGenerations = new Map<number, number>();
 function nextBadgeGeneration(tabId: number): number {
   const generation = (badgeGenerations.get(tabId) ?? 0) + 1;
@@ -177,9 +184,9 @@ async function badge(tab: chrome.tabs.Tab): Promise<void> {
   await chrome.action.setBadgeText({ tabId: tab.id, text: supported ? '$' : '' });
   if (supported) await chrome.action.setBadgeBackgroundColor({ tabId: tab.id, color: '#215748' });
 }
-async function status(): Promise<PopupStatus> {
+async function status(boundTab?: chrome.tabs.Tab, withPrices = true): Promise<PopupStatus> {
   await secureStorage;
-  const tab = await activeTab(); const tabId = tab.id!;
+  const tab = boundTab ?? await activeTab(); const tabId = tab.id!;
   const { shopperToken } = await chrome.storage.local.get('shopperToken');
 
   // Amazon checkout review — checked before the product and merchant/API branches.
@@ -196,7 +203,8 @@ async function status(): Promise<PopupStatus> {
   }
 
   // Price comparison runs alongside the coupon checks on any https product page.
-  const pricing = Promise.all([popupPrice(tab), alertsEnabled()]).then(([price, priceAlerts]) => ({ ...(price ? { price } : {}), priceAlerts }));
+  const pricing = withPrices ? Promise.all([popupPrice(tab), alertsEnabled()]).then(([price, priceAlerts]) => ({ ...(price ? { price } : {}), priceAlerts }))
+    : Promise.resolve({} as Pick<PopupStatus, 'price' | 'priceAlerts'>);
 
   // Amazon product inspection — before any merchant API calls; no DB dependency.
   const asin = amazonProductAsin(tab.url);
@@ -240,8 +248,8 @@ async function status(): Promise<PopupStatus> {
   return { supported: Boolean(merchant), merchantName: merchant?.name, ...checkout, busy: running.has(tabId) || checkout.busy, hasToken: Boolean(shopperToken), ...last, ...await pricing };
 }
 
-async function focusAmazon(data: AmazonFocusRequest): Promise<{ focused: true }> {
-  const tab = await activeTab(); const tabId = tab.id!;
+async function focusAmazon(data: AmazonFocusRequest, boundTab?: chrome.tabs.Tab, assertCurrent?: () => Promise<unknown>): Promise<{ focused: true }> {
+  const tab = boundTab ?? await activeTab(); const tabId = tab.id!;
   if (amazonProductAsin(tab.url) !== data.asin) throw new Error('This offer is no longer visible. Please reopen the extension on the product page.');
   const observedMs = Date.parse(data.observedAt);
   const now = Date.now();
@@ -255,6 +263,7 @@ async function focusAmazon(data: AmazonFocusRequest): Promise<{ focused: true }>
   const sendOptions = injected?.documentId != null
     ? ({ documentId: injected.documentId } as chrome.tabs.MessageSendOptions)
     : { frameId: 0 };
+  await assertCurrent?.();
   const reply: Reply<unknown> = await chrome.tabs.sendMessage(tabId, data, sendOptions);
   if ((await chrome.tabs.get(tabId)).url !== urlBefore) throw new Error('The page changed. Check the product again.');
   if (!reply?.ok) throw new Error(reply && !reply.ok ? reply.error : 'The coupon control could not be shown. Please try again.');
@@ -262,9 +271,9 @@ async function focusAmazon(data: AmazonFocusRequest): Promise<{ focused: true }>
   catch { throw new Error('The coupon control response was unexpected. Please try again.'); }
 }
 
-async function run(code?: string): Promise<{ result: TrialResult; reportNote: string }> {
+async function run(code?: string, boundTab?: chrome.tabs.Tab, assertCurrent?: () => Promise<unknown>): Promise<{ result: TrialResult; reportNote: string }> {
   await secureStorage;
-  const tab = await activeTab(); const tabId = tab.id!;
+  const tab = boundTab ?? await activeTab(); const tabId = tab.id!;
   // Checkout review is observation only; it never authorizes code trials.
   if (isAmazonCheckout(tab.url)) throw new Error('Amazon checkout is review-only. Codes are not tested here.');
   if (running.has(tabId)) throw new Error('Coupon testing is already running.');
@@ -273,14 +282,11 @@ async function run(code?: string): Promise<{ result: TrialResult; reportNote: st
   const keepAlive = setInterval(() => { void chrome.runtime.getPlatformInfo().catch(() => undefined); }, 20_000);
   try {
     const shopifyMerchant = adapterFor(tab.url) ? undefined : await shopifyMerchantFor(tab);
-    const merchant = shopifyMerchant ?? await merchantFor(tab);
+    // C6/M3 must establish reliable restoration and cart identity before any live trial.
+    if (shopifyMerchant) throw new Error(SHOPIFY_TRIALS_PAUSED);
+    const merchant = await merchantFor(tab);
     if (!merchant) throw new Error('This store is not supported yet.');
-    const host = shopifyMerchant?.domain;
-    const read = async () => host ? shopifyCheckout(await inspectShopify(tab, host)) : inspect(tabId);
-    if (host) {
-      const shopify = await inspectShopify(tab, host);
-      if (shopify.appliedCodes.length) throw new Error(`${shopify.appliedCodes.join(', ')} is already applied. We leave existing codes in place; remove it yourself if you want us to compare codes.`);
-    }
+    const read = () => inspect(tabId);
     const checkout = await read();
     if (!checkout.checkout || checkout.busy || checkout.completed) throw new Error('Open an active checkout, wait for it to finish updating, then try again.');
     const { shopperToken } = await chrome.storage.local.get('shopperToken');
@@ -296,22 +302,23 @@ async function run(code?: string): Promise<{ result: TrialResult; reportNote: st
         `/v1/coupons/candidates?merchantId=${encodeURIComponent(merchant.id)}&limit=10`,
         candidatesResponseSchema,
       ),
-      supports: (url) => host ? isShopifyCheckout(url, [host]) : Boolean(adapterFor(url)),
+      supports: (url) => Boolean(adapterFor(url)),
       beforeDispatch: async () => {
+        await assertCurrent?.();
         const currentTab = await chrome.tabs.get(tabId);
-        const supported = host ? isShopifyCheckout(currentTab.url, [host]) : Boolean(adapterFor(currentTab.url));
+        const supported = Boolean(adapterFor(currentTab.url));
         if (currentTab.url !== tab.url || !supported) throw new Error('The checkout changed. Open the extension again.');
       },
-      dispatch: async (codes) => host
-        ? chrome.tabs.sendMessage(tabId, { type: 'shopify-trial', host, codes }, await shopifyDocument(tab, host))
-        : chrome.tabs.sendMessage(tabId, { type: 'trial', codes }, { frameId: 0 }),
+      dispatch: (codes) => chrome.tabs.sendMessage(tabId, { type: 'trial', codes }, { frameId: 0 }),
     });
     if (!raw?.ok) throw new Error(raw && !raw.ok ? raw.error : 'The checkout did not respond. Please review your coupon and total.');
     const result = trialResultSchema.parse(raw.data);
+    await assertCurrent?.();
     let reportNote = token ? 'No new verification results to share.' : 'Add a shopper token to share verification results.';
     if (token) {
       let failed = 0;
       for (const attempt of result.attempts) {
+        await assertCurrent?.();
         try {
           await api('/v1/coupons/report', couponReportResponseSchema, couponReportSchema.parse({ merchantId: merchant.id, ...attempt, currency: 'USD' }), token);
         } catch { failed++; }
@@ -321,13 +328,66 @@ async function run(code?: string): Promise<{ result: TrialResult; reportNote: st
     }
     const response = { result, reportNote };
     if (!resultMatchesCheckout(result, await read())) throw new Error('Your cart changed after testing. Please check your coupon and total.');
+    await assertCurrent?.();
     await chrome.storage.session.set({ [`result:${tabId}`]: response });
     return response;
   } finally { clearInterval(keepAlive); running.delete(tabId); }
 }
 
+async function couponCandidates(tab: chrome.tabs.Tab): Promise<CouponCandidates> {
+  const shopify = adapterFor(tab.url) ? undefined : await shopifyMerchantFor(tab);
+  const merchant = shopify ?? await merchantFor(tab);
+  if (!merchant) return { merchantName: null, candidates: [], canTest: false, reason: 'Coupon testing is not available on this page.' };
+  const response = await api(`/v1/coupons/candidates?merchantId=${encodeURIComponent(merchant.id)}&limit=10`, candidatesResponseSchema);
+  const allowed = new Set(filterSafeCandidates(response.candidates, merchant.id, response.merchantId));
+  const candidates = response.candidates.filter((candidate) => allowed.has(candidate.code));
+  return { merchantName: merchant.name, candidates, canTest: !shopify,
+    reason: shopify ? SHOPIFY_TRIALS_PAUSED : candidates.length ? 'Reviewed public codes with recent shopper confirmations.' : 'No reviewed codes are available for this store yet.' };
+}
+
+async function handleSurface(data: z.infer<typeof surfaceRequestSchema>) {
+  const { tab, assertCurrent } = await bindSurfacePage(data.tabId, data.url, chrome.tabs, () => pageRevisions.get(data.tabId) ?? 0);
+  const request = data.request;
+  let result: unknown;
+  if (request.type === 'status') result = await status(tab, false);
+  else if (request.type === 'page-prices') {
+    if (isAmazonCheckout(tab.url)) result = {};
+    else { const [price, priceAlerts] = await Promise.all([popupPrice(tab), alertsEnabled()]); result = { ...(price ? { price } : {}), priceAlerts }; }
+  }
+  else if (request.type === 'coupon-candidates') result = await couponCandidates(tab);
+  else if (request.type === 'run') result = await run(undefined, tab, assertCurrent);
+  else if (request.type === 'try-code') result = await run(request.code, tab, assertCurrent);
+  else if (request.type === 'amazon-focus') result = await focusAmazon(request, tab, assertCurrent);
+  else if (request.type === 'hold-save-page') {
+    const price = await popupPrice(tab);
+    await assertCurrent();
+    if (!price?.product) throw new Error('This product could not be read. Add its link from your saved list instead.');
+    result = await watchlist.handle(request, async () => ({ product: price.product!, assertCurrent: async () => { await assertCurrent(); } }));
+  } else if (request.type === 'price-alerts') result = { enabled: request.enabled ? await syncPriceAlerts() : await disablePriceAlerts() };
+  else if (request.type === 'price-forget') { await forgetProducts(); result = { forgotten: true }; }
+  else {
+    await secureStorage;
+    await assertCurrent();
+    if (request.token) await chrome.storage.local.set({ shopperToken: request.token });
+    else await chrome.storage.local.remove('shopperToken');
+    result = { saved: Boolean(request.token) };
+  }
+  await assertCurrent();
+  return result;
+}
+
 chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;
+  if ((raw as { type?: unknown } | null)?.type === 'surface-request') {
+    if (!isCouponSurface(sender, chrome.runtime.id, chrome.runtime.getURL)) {
+      sendResponse({ ok: false, error: 'This page cannot control coupon checks.' }); return false;
+    }
+    const request = surfaceRequestSchema.safeParse(raw);
+    if (!request.success) { sendResponse({ ok: false, error: 'Invalid page request.' }); return false; }
+    handleSurface(request.data).then((data) => sendResponse({ ok: true, data }))
+      .catch((error: unknown) => sendResponse({ ok: false, error: error instanceof Error ? error.message : 'The check could not finish. Try again.' }));
+    return true;
+  }
   const owner = watchlistSender(sender, chrome.runtime.id, chrome.runtime.getURL);
   const savedRequest = watchlistRequestSchema.safeParse(raw);
   if (savedRequest.success) {
@@ -396,13 +456,14 @@ chrome.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
 });
 chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   if (change.status === 'loading' || change.url) {
+    pageRevisions.set(tabId, (pageRevisions.get(tabId) ?? 0) + 1);
     nextBadgeGeneration(tabId);
     void chrome.storage.session.remove(`result:${tabId}`);
     void chrome.action.setBadgeText({ tabId, text: '' }).catch(() => undefined);
   }
   if (change.status === 'complete' || change.url) void badge(tab).catch(() => undefined);
 });
-chrome.tabs.onRemoved.addListener((tabId) => { badgeGenerations.delete(tabId); running.delete(tabId); void chrome.storage.session.remove(`result:${tabId}`); });
+chrome.tabs.onRemoved.addListener((tabId) => { pageRevisions.delete(tabId); badgeGenerations.delete(tabId); running.delete(tabId); void chrome.storage.session.remove(`result:${tabId}`); });
 chrome.runtime.onInstalled.addListener(() => { void chrome.tabs.query({}).then((tabs) => Promise.all(tabs.map(badge))).catch(() => undefined); });
 // Keep the all-sites price script in step with the permission, including removal in Chrome settings.
 for (const event of [chrome.runtime.onInstalled, chrome.runtime.onStartup, chrome.permissions.onAdded, chrome.permissions.onRemoved]) {

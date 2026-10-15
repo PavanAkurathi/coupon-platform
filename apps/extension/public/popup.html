@@ -1,35 +1,22 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Hold</title><link rel="stylesheet" href="popup.css"></head>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Chenchulu</title><link rel="stylesheet" href="tokens.css"><link rel="stylesheet" href="popup.css"></head>
 <body>
-  <main>
-    <header><span class="wordmark"><img src="icon.svg" width="25" height="25" alt="">HOLD</span><span id="env-pill" class="pill" hidden>LOCAL DEMO</span></header>
-    <section class="hero" aria-labelledby="headline">
-      <span class="eyebrow" id="store">A little help at checkout</span>
-      <h1 id="headline">Good codes.<br>Better totals.</h1>
-      <p id="description">A few careful checks.<br>Every dollar saved stays yours.</p>
-      <div id="result" class="result" hidden><span class="result-label">SAVED ON THIS CART</span><strong id="saved-amount">$0.00</strong><span id="applied-code"></span></div>
+  <main id="surface" aria-busy="true">
+    <header class="brand-header"><span class="wordmark"><img src="icon.svg" width="28" height="28" alt=""><span data-product-name>Chenchulu</span></span><span id="env-pill" class="pill" hidden>Local demo</span></header>
+    <section class="hero card" aria-labelledby="headline">
+      <span class="eyebrow" id="store">Coupons, with a little care</span>
+      <h1 id="headline">Checking this page.</h1>
+      <p id="description">Reading the current page before showing any offers.</p>
+      <div id="result" class="result" hidden><span class="result-label">Additional savings from this test</span><strong id="saved-amount"></strong><span id="applied-code"></span></div>
     </section>
-    <section id="price-panel" class="price-panel" aria-labelledby="price-headline" hidden>
-      <p id="price-eyebrow" class="price-eyebrow">Price check</p>
-      <p id="price-headline" class="price-headline"></p>
-      <p id="price-meta" class="price-meta"></p>
-      <a id="price-link" class="primary price-link" target="_blank" rel="noopener noreferrer" hidden><span id="price-link-text">View offer</span><span aria-hidden="true">↗</span></a>
-      <p id="price-match" class="price-match" hidden><span id="price-match-text"></span><a id="price-match-link" target="_blank" rel="noopener noreferrer"></a></p>
-      <p id="price-sources" class="price-sources"></p>
-    </section>
-    <div id="price-alerts" class="price-alerts" hidden><p id="price-alerts-text"></p><button id="price-alerts-toggle" class="subtle" type="button"></button></div>
-    <div class="hold-list-actions"><button id="hold-save-item" class="subtle" type="button" hidden>Save item</button><button id="hold-open-list" class="subtle" type="button">My Hold list ↗</button></div>
-    <p id="hold-save-status" class="hold-save-status" role="status" aria-live="polite"></p>
-    <div id="trust-row" class="trust-row" hidden><span class="check">✓</span><span>Safety reviewed, then confirmed by 3 shoppers</span></div>
-    <button id="try-codes" class="primary" disabled hidden><span>Try codes for me</span><span aria-hidden="true">↗</span></button>
-    <section id="amazon-panel" hidden>
-      <p id="amazon-product" class="amazon-product"></p>
-      <div id="amazon-offers"></div>
+    <section id="amazon-panel" class="card" aria-label="Amazon's visible coupons" hidden>
+      <p id="amazon-product" class="amazon-product"></p><div id="amazon-offers"></div>
       <button id="amazon-show" class="primary" type="button" hidden><span>Show coupon on Amazon</span><span aria-hidden="true">↗</span></button>
       <button id="amazon-refresh" class="subtle amazon-refresh" type="button">Check this page again</button>
-      <p class="amazon-disclaimer">Offer shown by Amazon. Confirm eligibility and your final total at checkout.</p>
+      <p class="amazon-disclaimer">Offer shown by Amazon. Selecting it and confirming eligibility stay on Amazon.</p>
     </section>
-    <section id="amazon-checkout-panel" hidden>
+    <section id="amazon-checkout-panel" class="card" aria-label="Amazon order summary" hidden>
       <dl id="checkout-summary" class="checkout-summary" hidden>
         <div id="checkout-savings-row" class="checkout-row" hidden><dt>Coupon savings shown by Amazon</dt><dd id="checkout-savings"></dd></div>
         <div id="checkout-total-row" class="checkout-row" hidden><dt>Order total shown by Amazon</dt><dd id="checkout-total"></dd></div>
@@ -37,12 +24,35 @@
       <button id="checkout-refresh" class="primary" type="button"><span>Check totals again</span><span aria-hidden="true">↻</span></button>
       <p class="checkout-boundary">Order not placed. No commission claimed.</p>
     </section>
+    <section id="coupon-panel" class="card" aria-labelledby="coupon-heading" hidden>
+      <div class="section-heading"><h2 id="coupon-heading">Reviewed codes</h2><span id="coupon-count" class="pill" hidden></span></div>
+      <p id="coupon-note" class="coupon-note"></p><ul id="coupon-list" class="coupon-list"></ul>
+      <div id="trust-row" class="trust-row" hidden><span class="check" aria-hidden="true">✓</span><span>Public codes, reviewed attribution and recent shopper confirmations.</span></div>
+      <button id="try-codes" class="primary" type="button" disabled hidden><span>Try codes for me</span><span aria-hidden="true">→</span></button>
+      <p class="boundary">We compare against your starting total. An existing better discount stays in place. No order is placed.</p>
+    </section>
+    <div id="running" class="running card" hidden><span class="spinner" aria-hidden="true"></span><span id="running-text">Checking this page…</span></div>
     <p id="status" class="status" role="status" aria-live="polite">Checking this checkout…</p>
-    <p id="receipt" class="receipt" hidden></p>
+    <p id="receipt" class="receipt card" hidden></p>
+    <details id="attempt-panel" class="secondary card" hidden><summary>Codes tested <span aria-hidden="true">⌄</span></summary><ul id="attempt-list" class="attempt-list"></ul><p class="boundary">Code results show the discount in the cart. Additional savings above reflect improvement over your starting total.</p></details>
+    <button id="page-refresh" class="subtle" type="button" hidden>Check this page again</button>
     <a id="demo-link" class="demo-link" target="_blank" rel="noopener noreferrer" hidden>Open the demo checkout <span aria-hidden="true">↗</span></a>
-    <details id="code-section" class="secondary" hidden><summary>Have a code to share? <span>+</span></summary><form id="code-form"><label for="code">Test one code at this checkout</label><div class="input-row"><input id="code" name="code" minlength="2" maxlength="48" pattern="[A-Za-z0-9_-]+" placeholder="Enter code" autocomplete="off" required><button id="test-code" type="submit" class="subtle">Test code</button></div><p>New codes need operator safety review, then 3 shopper confirmations, before appearing as suggestions.</p></form></details>
-    <details id="token-section" class="secondary"><summary>Community settings <span>+</span></summary><form id="token-form"><label for="token">Shopper token</label><div class="input-row"><input id="token" name="token" type="password" maxlength="512" placeholder="Paste your issued token" autocomplete="off"><button type="submit" class="subtle">Save</button></div><p id="token-note">A token lets your checkout results count once per shopper. Leave blank and save to remove it.</p></form></details>
-    <footer><span class="privacy-dot"></span>No tracking cookies. No cost to you.</footer>
+    <details id="price-panel" class="card secondary price-panel" hidden>
+      <summary><span><span id="price-eyebrow" class="price-eyebrow">Compare prices</span><span id="price-headline" class="price-headline"></span></span><span class="chevron" aria-hidden="true">⌄</span></summary>
+      <div class="detail-body"><p id="price-meta" class="price-meta"></p>
+        <a id="price-link" class="subtle price-link" target="_blank" rel="noopener noreferrer" hidden><span id="price-link-text">View offer</span><span aria-hidden="true">↗</span></a>
+        <p id="price-match" class="price-match" hidden><span id="price-match-text"></span><a id="price-match-link" target="_blank" rel="noopener noreferrer"></a></p>
+        <p id="price-sources" class="price-sources"></p><p class="boundary">Separate from coupon testing. We earn nothing from these store links.</p>
+      </div>
+    </details>
+    <details id="shopping-tools" class="secondary card"><summary>Your shopping tools <span aria-hidden="true">⌄</span></summary><div class="detail-body">
+      <div id="price-alerts" class="price-alerts" hidden><p id="price-alerts-text"></p><button id="price-alerts-toggle" class="subtle" type="button"></button></div>
+      <div class="hold-list-actions"><button id="hold-save-item" class="subtle" type="button" hidden>Save item</button><button id="hold-open-list" class="subtle" type="button">My saved list ↗</button></div>
+      <p id="hold-save-status" class="hold-save-status" role="status" aria-live="polite"></p>
+    </div></details>
+    <details id="code-section" class="secondary card" hidden><summary>Have a code to share? <span aria-hidden="true">⌄</span></summary><form id="code-form"><label for="code">Test one code at this checkout</label><div class="input-row"><input id="code" name="code" minlength="2" maxlength="48" pattern="[A-Za-z0-9_-]+" placeholder="Enter code" autocomplete="off" required><button id="test-code" type="submit" class="subtle" disabled>Test code</button></div><p>Development only. A code needs operator safety review before testing, then recent shopper confirmations before it can be suggested.</p></form></details>
+    <details id="token-section" class="secondary card" hidden><summary>Community settings <span aria-hidden="true">⌄</span></summary><form id="token-form"><label for="token">Shopper token</label><div class="input-row"><input id="token" name="token" type="password" maxlength="512" placeholder="Paste your issued token" autocomplete="off"><button type="submit" class="subtle">Save</button></div><p id="token-note">A token lets your checkout results count once per shopper. Leave blank and save to remove it.</p></form></details>
+    <footer><a href="explainer.html" target="_blank" rel="noopener noreferrer">How <span data-product-name>Chenchulu</span> works <span aria-hidden="true">↗</span></a><p>No tracking cookies. No cost to you.</p></footer>
   </main>
   <script type="module" src="popup.js"></script>
 </body></html>

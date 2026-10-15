@@ -1,10 +1,8 @@
 import { mkdir, copyFile, readdir, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { relative, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
-
-// Product name chosen by the founder on October 9, 2026. Keep it neutral (no merchant, competitor or affiliate wording).
-const PRODUCT_NAME = "Hold";
+import { PRODUCT_NAME } from './product';
 const DEV_API_ORIGIN = "http://localhost:3001";
 const DEV_PRICE_API_ORIGIN = "http://localhost:3002";
 const ICON_SIZES = [16, 32, 48, 128];
@@ -25,7 +23,8 @@ const dir = import.meta.dir;
 type Manifest = {
   name: string; description: string; icons: Record<string, string>; permissions: string[]; host_permissions?: string[]; minimum_chrome_version?: string;
   content_scripts?: { matches: string[]; js: string[] }[]; background: { service_worker?: string; scripts?: string[]; type?: string }; optional_host_permissions?: string[];
-  action: { default_popup: string; default_icon: Record<string, string> }; content_security_policy: { extension_pages: string };
+  action: { default_popup?: string; default_title?: string; default_icon: Record<string, string> }; content_security_policy: { extension_pages: string };
+  side_panel?: { default_path: string };
   browser_specific_settings?: {
     gecko: { id: string; strict_min_version: string; data_collection_permissions: { required: string[] } };
     gecko_android: { strict_min_version: string };
@@ -36,7 +35,7 @@ const { values: args } = parseArgs({
   args: Bun.argv.slice(2), strict: true,
   options: {
     target: { type: "string", default: "dev" }, browser: { type: "string", default: "chrome" },
-    outdir: { type: "string" }, icons: { type: "boolean", default: false },
+    outdir: { type: "string" }, icons: { type: "boolean", default: false }, ui: { type: "string" },
   },
 });
 
@@ -61,6 +60,9 @@ const target = args.target;
 if (target !== "dev" && target !== "beta") throw new Error(`Unknown --target "${target}". Use dev or beta.`);
 const browser = args.browser;
 if (browser !== "chrome" && browser !== "firefox") throw new Error(`Unknown --browser "${browser}". Use chrome or firefox.`);
+const ui = args.ui ?? (browser === 'chrome' ? 'sidepanel' : 'popup');
+if (ui !== 'sidepanel' && ui !== 'popup') throw new Error('Use --ui sidepanel or --ui popup.');
+if (browser === 'firefox' && ui !== 'popup') throw new Error('Firefox uses the popup surface.');
 if (target === "dev" && process.env.COUPON_API_ORIGIN) console.warn(`COUPON_API_ORIGIN is ignored for dev builds; using ${DEV_API_ORIGIN}.`);
 const apiOrigin = target === "dev" ? DEV_API_ORIGIN : betaApiOrigin(process.env.COUPON_API_ORIGIN);
 // The price service is optional: without one, comparisons use prices seen in this browser only.
@@ -87,7 +89,7 @@ for (const entry of entries) {
   const result = await Bun.build({
     entrypoints: [`${dir}/src/${entry}.ts`], target: "browser",
     format: entry === "worker" || entry === "popup" || entry === "offscreen" ? "esm" : "iife", minify: true,
-    define: { __BUILD_TARGET__: JSON.stringify(target), __BROWSER__: JSON.stringify(browser), __API_ORIGIN__: JSON.stringify(apiOrigin), __PRICE_API_ORIGIN__: JSON.stringify(priceApiOrigin) },
+    define: { __BUILD_TARGET__: JSON.stringify(target), __BROWSER__: JSON.stringify(browser), __API_ORIGIN__: JSON.stringify(apiOrigin), __PRICE_API_ORIGIN__: JSON.stringify(priceApiOrigin), __SIDE_PANEL__: JSON.stringify(ui === 'sidepanel') },
     // zod compiles parsers with new Function unless jitless. Extension CSP blocks that and
     // logs a violation for zod's probe; jitless never tries. Set before zod first loads.
     banner: ZOD_JITLESS,
@@ -95,7 +97,12 @@ for (const entry of entries) {
   if (!result.success || result.outputs.length !== 1) throw new AggregateError(result.logs, `${entry} build failed`);
   bundles.set(`${entry}.js`, await result.outputs[0]!.text());
 }
-const staticFiles = ["popup.html", "popup.css", ...(browser === "chrome" ? ["offscreen.html"] : []), "icon.svg", ...ICON_SIZES.map((size) => `icon-${size}.png`)];
+const staticFiles = ["popup.html", "popup.css", "tokens.css", "explainer.html", ...(browser === "chrome" ? ["offscreen.html"] : []), "icon.svg", ...ICON_SIZES.map((size) => `icon-${size}.png`),
+  ...(await readdir(`${dir}/public/fonts`)).map((file) => `fonts/${file}`)];
+if (ui === 'sidepanel') {
+  const popup = await Bun.file(`${dir}/public/popup.html`).text();
+  bundles.set('sidepanel.html', popup.replace('<html', '<html data-surface="sidepanel"'));
+}
 // Store builds hide the dashboard's Coupons and Rewards tabs until they have real data (no store
 // is enabled for codes, and rewards don't exist yet), so its dashboard never calls the coupon service.
 const dashboardPreview = target === "dev";
@@ -112,6 +119,12 @@ const LIVE_STORE_ORIGINS = ["https://www.amazon.com", "https://www.walmart.com"]
 
 const manifest: Manifest = await Bun.file(`${dir}/public/manifest.json`).json();
 manifest.name = target === "dev" ? `${PRODUCT_NAME} (dev)` : PRODUCT_NAME;
+manifest.action.default_title = `${PRODUCT_NAME}: check coupons and savings`;
+if (ui === 'sidepanel') {
+  manifest.permissions.push('sidePanel');
+  delete manifest.action.default_popup;
+  manifest.side_panel = { default_path: 'sidepanel.html' };
+}
 manifest.content_security_policy.extension_pages = manifest.content_security_policy.extension_pages.replace("__API_ORIGIN__", [apiOrigin, priceApiOrigin, ...LIVE_STORE_ORIGINS].filter(Boolean).join(" "));
 if (target === "beta") {
   // The localhost grant and content script exist only for the demo checkout.
@@ -138,7 +151,7 @@ if (/__[A-Z_]+__/.test(manifestText)) throw new Error("Manifest template has an 
 // price-content.js is injected at runtime (popup or registered after the opt-in), not listed in the manifest.
 if (!bundles.has("price-content.js")) throw new Error("price-content.js is missing.");
 const referenced = [
-  ...(manifest.background.service_worker ? [manifest.background.service_worker] : manifest.background.scripts ?? []), manifest.action.default_popup, ...Object.values(manifest.icons),
+  ...(manifest.background.service_worker ? [manifest.background.service_worker] : manifest.background.scripts ?? []), ...(manifest.action.default_popup ? [manifest.action.default_popup] : []), ...(manifest.side_panel ? [manifest.side_panel.default_path] : []), ...Object.values(manifest.icons),
   ...Object.values(manifest.action.default_icon), ...(manifest.content_scripts ?? []).flatMap((script) => script.js),
 ];
 for (const file of referenced) if (!bundles.has(file) && !staticFiles.includes(file)) throw new Error(`Manifest references missing file ${file}`);
@@ -159,6 +172,9 @@ await mkdir(outdir, { recursive: true });
 await mkdir(`${outdir}/dashboard`, { recursive: true });
 for (const [file, text] of bundles) await Bun.write(`${outdir}/${file}`, text);
 for (const [file, text] of dashboardAssets) await Bun.write(`${outdir}/dashboard/${file}`, text);
-for (const file of staticFiles) await copyFile(`${dir}/public/${file}`, `${outdir}/${file}`);
+for (const file of staticFiles) {
+  await mkdir(dirname(`${outdir}/${file}`), { recursive: true });
+  await copyFile(`${dir}/public/${file}`, `${outdir}/${file}`);
+}
 await Bun.write(`${outdir}/manifest.json`, `${manifestText}\n`);
 console.log(`Extension ready (${target}, ${browser}, API ${apiOrigin}, prices ${priceApiOrigin ?? "this browser only"}): ${relative(process.cwd(), outdir) || "."}`);

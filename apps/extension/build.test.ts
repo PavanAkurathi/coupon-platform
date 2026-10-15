@@ -8,9 +8,9 @@ const root = mkdtempSync(join(tmpdir(), "hold-build-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 const env = { ...process.env, COUPON_API_ORIGIN: "https://coupons.example.test", PRICE_API_ORIGIN: "https://prices.example.test" };
 
-async function build(browser: "chrome" | "firefox") {
-  const outdir = join(root, browser);
-  const run = Bun.spawnSync(["bun", "run", `${import.meta.dir}/build.ts`, "--target", "beta", "--browser", browser, "--outdir", outdir], { env, stderr: "pipe", stdout: "pipe" });
+async function build(browser: "chrome" | "firefox", ui?: 'popup') {
+  const outdir = join(root, `${browser}${ui ? '-popup' : ''}`);
+  const run = Bun.spawnSync(["bun", "--no-env-file", "run", `${import.meta.dir}/build.ts`, "--target", "beta", "--browser", browser, "--outdir", outdir, ...(ui ? ['--ui', ui] : [])], { env, stderr: "pipe", stdout: "pipe" });
   if (run.exitCode !== 0) throw new Error(run.stderr.toString());
   return { outdir, manifest: await Bun.file(join(outdir, "manifest.json")).json() };
 }
@@ -20,6 +20,12 @@ describe("store builds", () => {
     const { outdir, manifest } = await build("chrome");
     expect(manifest.background).toEqual({ service_worker: "worker.js", type: "module" });
     expect(manifest.permissions).toContain("offscreen");
+    expect(manifest.permissions).toContain('sidePanel');
+    expect(manifest.side_panel).toEqual({ default_path: 'sidepanel.html' });
+    expect(manifest.action.default_popup).toBeUndefined();
+    expect(await Bun.file(join(outdir, 'sidepanel.html')).text()).toContain('data-surface="sidepanel"');
+    expect(existsSync(join(outdir, 'tokens.css'))).toBe(true);
+    expect(existsSync(join(outdir, 'fonts/OFL-LICENSE.txt'))).toBe(true);
     expect(existsSync(join(outdir, "offscreen.js"))).toBe(true);
     expect(manifest.browser_specific_settings).toBeUndefined();
     expect(manifest.description.length).toBeLessThanOrEqual(132);
@@ -30,6 +36,13 @@ describe("store builds", () => {
     expect(await Bun.file(join(outdir, "dashboard/main.js")).text()).not.toContain("coupons.example.test");
     // The Chrome worker leaves page parsing to the offscreen document.
     expect(await Bun.file(join(outdir, "worker.js")).text()).not.toContain("parseFromString");
+  }, 60_000);
+
+  test('Chrome retains an explicit popup build for compatibility', async () => {
+    const { manifest } = await build('chrome', 'popup');
+    expect(manifest.action.default_popup).toBe('popup.html');
+    expect(manifest.side_panel).toBeUndefined();
+    expect(manifest.permissions).not.toContain('sidePanel');
   }, 60_000);
 
   test("zod never compiles code with new Function in any bundle", async () => {
@@ -43,6 +56,8 @@ describe("store builds", () => {
     const { outdir, manifest } = await build("firefox");
     expect(manifest.background).toEqual({ scripts: ["worker.js"], type: "module" });
     expect(manifest.permissions).toEqual(["storage", "activeTab", "scripting"]);
+    expect(manifest.action.default_popup).toBe('popup.html');
+    expect(manifest.side_panel).toBeUndefined();
     expect(manifest.optional_host_permissions).toEqual(["https://*/*"]);
     expect(manifest.minimum_chrome_version).toBeUndefined();
     expect(existsSync(join(outdir, "offscreen.js")) || existsSync(join(outdir, "offscreen.html"))).toBe(false);

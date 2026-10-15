@@ -1,0 +1,148 @@
+/*
+  Chenchu · Evergreen & Mint · V2 design tokens
+  Light values are what the V2 screens use.
+  Dark values are the agreed dark twins. V2 dark screens are not drawn yet,
+  so check contrast (4.5:1 minimum for text) when you build them.
+*/
+
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 400; font-display: swap; src: url("fonts/figtree-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 500; font-display: swap; src: url("fonts/figtree-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 600; font-display: swap; src: url("fonts/figtree-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 700; font-display: swap; src: url("fonts/figtree-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Figtree"; font-style: normal; font-weight: 800; font-display: swap; src: url("fonts/figtree-latin-800-normal.woff2") format("woff2"); }
+
+:root {
+  /* ---------- Brand and signal colors ---------- */
+  --cc-evergreen: #0E3F30;          /* brand: main button, best-price outline, "Best" tag, page pill */
+  --cc-evergreen-hover: #0B3528;
+  --cc-evergreen-active: #082A20;
+  --cc-mint: #78F0BF;               /* money highlight FILL ("Save $29.65", best-so-far banner, success icon). Text use only on evergreen. */
+  --cc-money: #08754B;              /* money as TEXT on white or light grey (discounts, "Best price" label) */
+  --cc-mint-tint: #E3F8EE;          /* "Exact match" chip, "Good time to buy" chip, progress track, success icon bg */
+  --cc-low-zone: #BDEFD7;           /* price history bar: low zone */
+  --cc-caution: #9A5300;            /* failed codes, Wait */
+  --cc-caution-tint: #FBEFDC;       /* caution icon bg, price history bar: high zone */
+
+  /* ---------- Neutrals ---------- */
+  --cc-ink: #0F1E18;                /* primary text */
+  --cc-muted: #4C5B54;              /* secondary text (7.2:1 on white) */
+  --cc-ground: #F4F6F4;             /* side panel background, breakdown block */
+  --cc-surface: #FFFFFF;            /* cards */
+  --cc-divider: #E9EEEA;            /* row dividers */
+  --cc-line: #E3E9E5;               /* inner rules, price bar typical zone */
+  --cc-chip-neutral: #EEF2EF;       /* "You're here" tag, neutral icon circles */
+  --cc-store-tile: #E8ECE9;         /* store logo placeholder tile */
+  --cc-store-tile-featured: #0F1E18;/* featured (best) store tile placeholder */
+  --cc-store-tile-featured-text: #FFFFFF;
+  --cc-code-border: #A9B9B0;        /* dashed coupon chips (decorative) */
+  --cc-input-border: #7E8E86;       /* text inputs: 3.4:1 on white, meets the 3:1 rule for field edges */
+  --cc-thumb: #F1F3F2;              /* product image well */
+  --cc-thumb-icon: #8A9A92;
+
+  /* ---------- Semantic roles (switch these for dark mode) ---------- */
+  --cc-button-bg: var(--cc-evergreen);
+  --cc-button-bg-hover: var(--cc-evergreen-hover);
+  --cc-button-bg-active: var(--cc-evergreen-active);
+  --cc-button-text: #FFFFFF;
+  --cc-money-text: var(--cc-money);
+  --cc-money-fill: var(--cc-mint);
+  --cc-money-fill-text: var(--cc-evergreen);
+  --cc-best-outline: var(--cc-evergreen);
+  --cc-tag-best-bg: var(--cc-evergreen);
+  --cc-tag-best-text: #FFFFFF;
+  --cc-link: var(--cc-evergreen);
+
+  /* ---------- Type ---------- */
+  --cc-font: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --cc-text-tag: 10.5px;      /* "Best" and "You're here" tags */
+  --cc-text-meta: 11.5px;     /* deltas, chips, fine print */
+  --cc-text-sm: 12px;         /* secondary lines, footer */
+  --cc-text-breakdown: 12.5px;/* price breakdown rows, store meta in hero */
+  --cc-text-note: 13px;       /* price history sentence, check lists, ZIP nudge */
+  --cc-text-body: 13.5px;     /* body copy, savings line */
+  --cc-text-row: 14px;        /* row titles, product name */
+  --cc-text-title: 15px;      /* section titles, row totals, buttons */
+  --cc-text-store: 16px;      /* store name in best-price card */
+  --cc-text-card-title: 18px; /* "We couldn't confirm the same item", "Open a product on Amazon" */
+  --cc-text-state: 20px;      /* state titles in the code tester */
+  --cc-text-total: 22px;      /* best total */
+  --cc-text-hero: 44px;       /* "You saved $27.90" amount */
+  --cc-leading-tight: 1.2;
+  --cc-leading: 1.3;
+  --cc-leading-body: 1.45;
+
+  /* ---------- Space (4px base, half steps where the design uses them) ---------- */
+  --cc-space-0-5: 2px;
+  --cc-space-1: 4px;
+  --cc-space-1-5: 6px;
+  --cc-space-2: 8px;
+  --cc-space-2-5: 10px;
+  --cc-space-3: 12px;
+  --cc-space-3-5: 14px;
+  --cc-space-4: 16px;
+  --cc-space-5: 20px;
+  --cc-panel-padding: 14px;   /* side panel inner padding */
+  --cc-stack-gap: 12px;       /* gap between cards */
+
+  /* ---------- Radius ---------- */
+  --cc-radius-card: 16px;
+  --cc-radius-button: 12px;
+  --cc-radius-tile: 12px;     /* 44px and 56px tiles */
+  --cc-radius-tile-sm: 9px;   /* 32px store tiles */
+  --cc-radius-inset: 10px;    /* breakdown block */
+  --cc-radius-chip: 8px;      /* "Save $29.65" */
+  --cc-radius-code: 6px;      /* coupon chips */
+  --cc-radius-pill: 999px;
+
+  /* ---------- Elevation ---------- */
+  --cc-shadow-card: 0 1px 2px rgba(15, 30, 24, 0.06);
+  --cc-shadow-best: inset 0 0 0 1.5px var(--cc-best-outline), 0 6px 18px -10px rgba(14, 63, 48, 0.35);
+  --cc-shadow-wait: inset 0 0 0 1.5px var(--cc-caution), 0 6px 18px -10px rgba(154, 83, 0, 0.3);
+  --cc-shadow-pill: 0 2px 8px rgba(14, 63, 48, 0.25);
+
+  /* ---------- Focus ---------- */
+  --cc-focus-ring: 0 0 0 2px var(--cc-surface), 0 0 0 4px var(--cc-evergreen);
+
+  /* ---------- Motion ---------- */
+  --cc-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --cc-duration-fast: 160ms;
+  --cc-duration-base: 180ms;
+  --cc-duration-slow: 300ms;
+}
+
+/* Dark mode: side panel only. The page pill does NOT switch (it lives on the store's page). */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cc-ground: #07130E;
+    --cc-surface: #0F1F18;
+    --cc-ink: #EAF3EE;
+    --cc-muted: #9DB3A8;
+    --cc-divider: #1B2E25;
+    --cc-line: #22362C;
+    --cc-chip-neutral: #1B2E25;
+    --cc-store-tile: #1B2E25;
+    --cc-store-tile-featured: #EAF3EE;
+    --cc-store-tile-featured-text: #07130E;
+    --cc-code-border: #3C5A4C;
+    --cc-input-border: #5E786B;
+    --cc-thumb: #142A21;
+    --cc-thumb-icon: #9DB3A8;
+    --cc-mint-tint: #10392B;
+    --cc-low-zone: #1F5A45;
+    --cc-caution: #F0A04B;
+    --cc-caution-tint: #3A2610;
+
+    --cc-button-bg: #78F0BF;
+    --cc-button-bg-hover: #8FF5CC;
+    --cc-button-bg-active: #63E2AE;
+    --cc-button-text: #07130E;
+    --cc-money-text: #78F0BF;
+    --cc-money-fill: #78F0BF;
+    --cc-money-fill-text: #07130E;
+    --cc-best-outline: #78F0BF;
+    --cc-tag-best-bg: #78F0BF;
+    --cc-tag-best-text: #07130E;
+    --cc-link: #78F0BF;
+    --cc-focus-ring: 0 0 0 2px var(--cc-surface), 0 0 0 4px #78F0BF;
+  }
+}

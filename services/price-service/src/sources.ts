@@ -1,5 +1,6 @@
 import type { PriceOffer } from '@repo/shared';
 import { ebaySource, type OfferSource } from './ebay';
+import { bestBuySource } from './bestbuy';
 
 // Sources switch on from the environment. Missing keys are reported to the
 // extension as "not configured", never as "no cheaper offer".
@@ -9,6 +10,9 @@ export function apiSources(env: Record<string, string | undefined>): { sources: 
   if (env.EBAY_CLIENT_ID && env.EBAY_CLIENT_SECRET) {
     sources.push(ebaySource({ clientId: env.EBAY_CLIENT_ID, clientSecret: env.EBAY_CLIENT_SECRET }));
   } else unconfigured.push('ebay_api');
+  const bestBuyKey = env.BESTBUY_API_KEY?.trim();
+  if (bestBuyKey) sources.push(bestBuySource({ apiKey: bestBuyKey }));
+  else unconfigured.push('bestbuy_api');
   return { sources, unconfigured };
 }
 export const corsOrigins = (raw: string | undefined) => (raw ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);

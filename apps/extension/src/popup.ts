@@ -1,54 +1,123 @@
-import { BUILD_TARGET, DEMO_ORIGIN, formatMoney, popupStatusSchema, trialResponseSchema, type PopupStatus, type Reply, type TrialResult } from "./protocol";
-import { confirmedEarningsLine } from "@repo/shared";
-import { renderPrice, renderPriceAlerts } from "./price-popup";
+import { BUILD_TARGET, DEMO_ORIGIN, PRODUCT_NAME, couponCandidatesSchema, formatMoney, popupStatusSchema, surfaceRequestSchema, trialResponseSchema, type CouponCandidates, type PopupStatus, type Reply, type TrialResult } from './protocol';
+import { eligibleCandidates, sameBinding, trialDisplay, type PageBinding } from './coupon-view';
+import { renderPrice, renderPriceAlerts } from './price-popup';
+import type { z } from 'zod';
 
+type SurfaceAction = z.infer<typeof surfaceRequestSchema>['request'];
+type Context = { generation: number; binding: PageBinding };
 function el<T extends HTMLElement>(id: string): T { const node = document.getElementById(id); if (!node) throw new Error(`Missing ${id}`); return node as T; }
-const primary = el<HTMLButtonElement>("try-codes");
-const testCode = el<HTMLButtonElement>("test-code");
-const statusLine = el("status");
-// Shopper tokens and shared codes need a token issued by the operator. Store builds leave them out:
-// nobody outside the beta can get one, so the fields could never work there.
-const COMMUNITY = BUILD_TARGET === "dev";
+const primary = el<HTMLButtonElement>('try-codes');
+const testCode = el<HTMLButtonElement>('test-code');
+const statusLine = el('status');
+const demoLink = el<HTMLAnchorElement>('demo-link');
+const COMMUNITY = BUILD_TARGET === 'dev';
+const SIDE_PANEL = document.body.dataset.surface === 'sidepanel';
 let state: PopupStatus | undefined;
+let candidates: CouponCandidates | undefined;
+let binding: PageBinding | undefined;
+let watchedTabId: number | undefined;
+let generation = 0;
 let busy = false;
-async function request<T>(message: unknown): Promise<T> {
-  const reply: Reply<T> = await chrome.runtime.sendMessage(message);
-  if (!reply?.ok) throw new Error(reply && !reply.ok ? reply.error : "The extension did not respond.");
-  return reply.data;
-}
-function status(message: string, error = false) { statusLine.textContent = message; statusLine.classList.toggle("error", error); }
-// Demo affordances exist only in dev builds (DEMO_ORIGIN is null in beta), and only on a localhost page.
-const demoLink = el<HTMLAnchorElement>("demo-link");
+let fetching = false;
+let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+class StaleSurface extends Error {}
+
+document.title = PRODUCT_NAME;
+document.querySelectorAll<HTMLElement>('[data-product-name]').forEach((node) => { node.textContent = PRODUCT_NAME; });
 if (DEMO_ORIGIN) demoLink.href = `${DEMO_ORIGIN}/checkout`;
-async function onLocalDemoHost(): Promise<boolean> {
-  if (!DEMO_ORIGIN) return false;
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    return tab?.url ? new URL(tab.url).hostname === new URL(DEMO_ORIGIN).hostname : false;
-  } catch { return false; }
+function status(message: string, error = false) { statusLine.textContent = message; statusLine.classList.toggle('error', error); }
+function currentContext(): Context | undefined { return binding ? { generation, binding: { ...binding } } : undefined; }
+function isCurrent(context: Context): boolean { return generation === context.generation; }
+function running(show: boolean, message = 'Checking this page…') {
+  el('running').hidden = !show;
+  el('running-text').textContent = message;
+  el('surface').setAttribute('aria-busy', String(show));
 }
 function controls() {
-  const unavailable = busy || !state?.supported || !state.checkout || state.completed || state.busy || Boolean(state?.shopify?.appliedCodes.length);
-  primary.disabled = Boolean(unavailable); testCode.disabled = Boolean(unavailable || !state?.hasToken);
-  primary.querySelector("span")!.textContent = busy || state?.busy ? "Checking codes…" : "Try codes for me";
+  const unavailable = fetching || busy || !binding || !state?.supported || !state.checkout || state.completed || state.busy || Boolean(state.shopify);
+  const count = eligibleCandidates(candidates?.candidates ?? []).length;
+  primary.disabled = Boolean(unavailable || !candidates?.canTest || count === 0);
+  testCode.disabled = Boolean(unavailable || !state?.hasToken || !COMMUNITY);
+  primary.querySelector('span')!.textContent = busy || state?.busy ? 'Checking codes…' : count ? `Try ${count} ${count === 1 ? 'code' : 'codes'}` : 'No reviewed codes yet';
+  el<HTMLButtonElement>('hold-save-item').disabled = fetching || busy || !binding;
+  el<HTMLButtonElement>('amazon-refresh').disabled = fetching || busy;
+  el<HTMLButtonElement>('checkout-refresh').disabled = fetching || busy;
+  el<HTMLButtonElement>('page-refresh').disabled = fetching || busy;
+  const tokenButton = el<HTMLFormElement>('token-form').querySelector<HTMLButtonElement>('button')!;
+  tokenButton.disabled = fetching || busy || !binding;
+  el<HTMLInputElement>('code').disabled = Boolean(unavailable || !COMMUNITY);
 }
 function clearResult() {
-  el("result").hidden = true;
-  el("receipt").hidden = true;
-  el("headline").replaceChildren(document.createTextNode("Good codes."), document.createElement("br"), document.createTextNode("Better totals."));
-  el("description").hidden = false;
+  el('result').hidden = true; el('receipt').hidden = true; el('attempt-panel').hidden = true;
+  el('saved-amount').textContent = ''; el('applied-code').textContent = ''; el('receipt').textContent = '';
+  el('attempt-list').replaceChildren();
+}
+function invalidate(message = 'Checking this checkout…'): number {
+  generation++;
+  clearTimeout(expiryTimer);
+  binding = undefined; state = undefined; candidates = undefined; busy = false; fetching = true;
+  for (const id of ['amazon-panel','amazon-checkout-panel','coupon-panel','trust-row','try-codes','code-section','token-section','env-pill','page-refresh','hold-save-item','price-alerts']) el(id).hidden = true;
+  clearResult(); clearCheckoutAmounts(); renderPrice(undefined);
+  el<HTMLDetailsElement>('price-panel').open = false;
+  el<HTMLDetailsElement>('attempt-panel').open = false;
+  el('amazon-offers').replaceChildren(); el('amazon-product').textContent = '';
+  el('coupon-list').replaceChildren(); el('coupon-note').textContent = ''; el('coupon-count').hidden = true;
+  const show = el<HTMLButtonElement>('amazon-show');
+  show.hidden = true; show.disabled = true;
+  for (const key of Object.keys(show.dataset)) delete show.dataset[key];
+  el('hold-save-status').textContent = ''; demoLink.hidden = true;
+  el('headline').textContent = 'Checking this page.';
+  el('description').hidden = false; el('description').textContent = 'Reading the current page before showing any offers.';
+  el('store').textContent = 'Coupons, with a little care';
+  status(message); running(true); controls();
+  return generation;
+}
+async function activeBinding(): Promise<PageBinding> {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab?.id === undefined || !tab.url) throw new Error('Open a store page, then check again.');
+  if (tab.status === 'loading') throw new Error('This page is still loading. Check again once it is ready.');
+  return { tabId: tab.id, url: tab.url };
+}
+async function stillOnPage(context: Context): Promise<boolean> {
+  if (!isCurrent(context)) return false;
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!isCurrent(context)) return false;
+  if (!sameBinding(context.binding, tab)) {
+    // Clear immediately even if a tab event was not delivered to this surface.
+    invalidate('The page changed. Checking the current page…');
+    void refresh();
+    return false;
+  }
+  return true;
+}
+async function request<T>(context: Context, action: SurfaceAction): Promise<T> {
+  if (!isCurrent(context)) throw new StaleSurface();
+  const message = surfaceRequestSchema.parse({ type: 'surface-request', ...context.binding, request: action });
+  const reply: Reply<T> = await chrome.runtime.sendMessage(message);
+  if (!await stillOnPage(context)) throw new StaleSurface();
+  if (!reply?.ok) throw new Error(reply && !reply.ok ? reply.error : 'The extension did not respond.');
+  return reply.data;
 }
 function showResult(result: TrialResult, completed = false) {
-  el("result").hidden = false;
-  el("headline").textContent = result.savingsCents > 0 ? "A better total." : "You're all checked.";
-  el("description").hidden = true;
-  el("saved-amount").textContent = formatMoney(result.savingsCents);
-  el("applied-code").textContent = result.appliedCode ? `${result.appliedCode} applied · ${formatMoney(result.totalCents)} total` : "No working discount found this time.";
-  el("receipt").hidden = false;
-  // No earnings claim is fabricated: cashback settlement is not active in this demo.
-  el("receipt").textContent = completed ? `${confirmedEarningsLine({ savingsCents: result.savingsCents, feeCents: 0 })} (Demo)` : `${formatMoney(result.additionalSavingsCents)} more saved. No fee to you.`;
+  const display = trialDisplay(result);
+  el('result').hidden = false; el('description').hidden = true;
+  el('headline').textContent = display.headline;
+  el('saved-amount').textContent = formatMoney(display.additionalSavingsCents);
+  el('applied-code').textContent = result.appliedCode
+    ? `${result.appliedCode} applied · ${formatMoney(display.discountCents)} coupon discount · ${formatMoney(display.totalCents)} total`
+    : `No code applied · ${formatMoney(display.totalCents)} total`;
+  el('receipt').hidden = false;
+  el('receipt').textContent = `${formatMoney(display.additionalSavingsCents)} more saved than your starting total. No fee to you. No commission claimed.${completed ? ' Demo order completed.' : ''}`;
+  const attempts = el('attempt-list'); attempts.replaceChildren();
+  for (const attempt of result.attempts) {
+    const row = document.createElement('li'); row.className = 'attempt-row';
+    const name = document.createElement('span'); name.className = 'coupon-code'; name.textContent = attempt.code;
+    const outcome = document.createElement('span'); outcome.className = `attempt-result${attempt.outcome === 'success' ? ' success' : ''}`;
+    outcome.textContent = attempt.outcome === 'success' ? `${formatMoney(attempt.savingsCents)} cart discount` : 'No discount confirmed';
+    row.append(name, outcome); attempts.append(row);
+  }
+  el('attempt-panel').hidden = result.attempts.length === 0;
 }
-
 type AmazonInspection = NonNullable<PopupStatus["amazon"]>;
 type AmazonCheckoutInspection = NonNullable<PopupStatus["amazonCheckout"]>;
 
@@ -204,131 +273,181 @@ function renderAmazonMode(inspection: AmazonInspection) {
   }
 }
 
-function hideAmazonMode(supported: boolean) {
-  hideCheckoutMode();
-  el("amazon-panel").hidden = true;
-  // Trial controls and their verification claims only appear on a supported checkout.
-  el("try-codes").hidden = !supported;
-  el("trust-row").hidden = !supported;
-  el("code-section").hidden = !supported || !COMMUNITY;
-  el("token-section").hidden = !COMMUNITY;
-  el("env-pill").textContent = "LOCAL DEMO";
-  el("env-pill").hidden = !supported || !DEMO_ORIGIN;
-  el("headline").replaceChildren(document.createTextNode("Good codes."), document.createElement("br"), document.createTextNode("Better totals."));
-  el("description").textContent = "A few careful checks. Every dollar saved stays yours.";
-  el("description").hidden = false;
-}
-
-async function refresh() {
-  state = popupStatusSchema.parse(await request({ type: "status" }));
-  const hasPrice = renderPrice(state.price);
-  el('hold-save-item').hidden = !state.price?.product;
-  renderPriceAlerts(state.priceAlerts, refresh);
-
-  if (state.amazonCheckout !== undefined) {
-    renderCheckoutMode(state.amazonCheckout);
-    return;
+function renderCandidates(data: CouponCandidates) {
+  candidates = { ...data, candidates: eligibleCandidates(data.candidates) };
+  const list = el('coupon-list'); list.replaceChildren();
+  const count = candidates.candidates.length;
+  el('coupon-count').textContent = String(count); el('coupon-count').hidden = count === 0;
+  el('coupon-heading').textContent = count ? `${count} reviewed ${count === 1 ? 'code' : 'codes'}` : 'No reviewed codes yet';
+  el('coupon-note').textContent = data.reason || (count ? 'Previous success does not guarantee a discount on this cart.' : 'We have no currently approved codes to suggest for this store.');
+  for (const candidate of candidates.candidates) {
+    const row = document.createElement('li'); row.className = 'coupon-row';
+    const code = document.createElement('span'); code.className = 'coupon-code'; code.textContent = candidate.code;
+    const evidence = document.createElement('span'); evidence.className = 'coupon-evidence';
+    const confirmed = document.createElement('span'); confirmed.textContent = `${candidate.confirmations} shopper confirmations`;
+    const recent = document.createElement('span'); recent.textContent = `Last success ${new Date(candidate.lastConfirmedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+    const expires = document.createElement('span'); expires.textContent = candidate.expiresAt
+      ? `Expires ${new Date(candidate.expiresAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'No published expiry';
+    evidence.append(confirmed, recent, expires); row.append(code, evidence); list.append(row);
   }
-  if (state.amazon !== undefined) {
-    renderAmazonMode(state.amazon);
-    // A cheaper exact match elsewhere outranks "no coupon here".
-    if (state.price?.comparison?.status === "better_offer" && state.amazon.status !== "offers_found") {
-      el("headline").textContent = "Wait. It's cheaper elsewhere.";
-    }
-    return;
+  el('trust-row').hidden = count === 0;
+  primary.hidden = false;
+  if (!state?.result && !state?.busy) {
+    el('headline').textContent = count ? 'A code worth checking.' : 'No reviewed codes yet.';
+    el('description').textContent = count ? 'We test only approved codes, then compare with the total you started with.' : 'No guesses. We’ll show codes here when their review and recent evidence are in place.';
   }
-
-  hideAmazonMode(state.supported);
-  if (state.shopify) el("env-pill").hidden = true;
-  const localDemo = !state.supported && await onLocalDemoHost();
-  el("store").textContent = state.merchantName ? `${state.merchantName} · checkout` : "A little help at checkout";
-  demoLink.hidden = !localDemo;
-  el("token-note").textContent = state.hasToken ? "Shopper token saved. Your reports count once per code. Leave blank and save to remove it." : "Add an issued shopper token to help verify codes. Leave blank and save to remove it.";
-  if (!state.result) clearResult();
-  if (state.result) { showResult(state.result, state.completed); status(state.reportNote ?? "Your best code is ready."); }
-  else if (!state.supported && hasPrice) {
-    const better = state.price?.comparison?.status === "better_offer";
-    el("headline").textContent = better ? "Wait. It's cheaper elsewhere." : "Price checked.";
-    el("description").hidden = true;
-    status("");
-  }
-  else if (!state.supported) {
-    el("headline").textContent = "Not supported here yet.";
-    el("description").textContent = "Hold didn't find a product on this page.";
-    status(localDemo ? "Try the local demo checkout or open an Amazon product page." : "Open a product page to compare its price, or an Amazon.com product page to check coupons.");
-  }
-  else if (state.shopify?.appliedCodes.length) status(`${state.shopify.appliedCodes.join(", ")} is already applied. We leave existing codes in place.`);
-  else if (state.shopify && !state.checkout) status(state.shopify.reason || "Open the checkout and wait for the order summary to load.");
-  else if (state.shopify) status(state.shopify.totalIsEstimate ? "We'll try verified codes and keep the best total. Shipping and tax are estimates until you add an address." : "We'll try verified codes and keep the best total.");
-  else if (!state.checkout) status("Refresh the checkout page to connect the extension.");
-  else if (state.completed) status("This demo order is complete. Start a new cart to test codes.");
-  else if (state.busy) status("Testing is running. You can reopen this popup when it finishes.");
-  else status("We'll try verified codes and keep the best total.");
   controls();
 }
-async function run(code?: string) {
-  busy = true; clearResult(); controls(); status("Trying codes in your checkout. Please leave your cart as it is.");
-  try {
-    const response = trialResponseSchema.parse(await request(code ? { type: "try-code", code } : { type: "run" }));
-    showResult(response.result); status(response.reportNote);
-  } catch (error) { status(error instanceof Error ? error.message : "Could not check codes.", true); }
-  finally { busy = false; controls(); }
-}
-primary.addEventListener("click", () => void run());
-el<HTMLFormElement>("code-form").addEventListener("submit", (event) => { event.preventDefault(); void run(el<HTMLInputElement>("code").value.trim()); });
-el<HTMLFormElement>("token-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  try {
-    await request({ type: "save-token", token: el<HTMLInputElement>("token").value.trim() });
-    el<HTMLInputElement>("token").value = "";
-    await refresh(); status(state?.hasToken ? "Shopper token saved." : "Shopper token removed.");
-  } catch (error) { status(error instanceof Error ? error.message : "Could not save token.", true); }
-});
-el<HTMLButtonElement>("amazon-show").addEventListener("click", async () => {
-  const btn = el<HTMLButtonElement>("amazon-show");
-  const { offerId, fingerprint, observedAt, asin } = btn.dataset;
-  if (!offerId || !fingerprint || !observedAt || !asin) return;
-  btn.disabled = true;
-  status("Opening the coupon control on Amazon…");
-  try {
-    await request({ type: "amazon-focus", asin, offerId, fingerprint, observedAt });
-    window.close();
-  } catch (error) {
-    status(error instanceof Error ? error.message : "Could not show the coupon control.", true);
-    // Keep the stale action disabled until a fresh inspection succeeds.
+function renderStandard(context: Context) {
+  if (!state) return;
+  const localDemo = Boolean(DEMO_ORIGIN && new URL(context.binding.url).origin === DEMO_ORIGIN);
+  el('store').textContent = state.merchantName ? `${state.merchantName} · checkout` : 'Coupons, with a little care';
+  el('env-pill').textContent = 'Local demo'; el('env-pill').hidden = !localDemo;
+  demoLink.hidden = !localDemo || state.supported;
+  el('code-section').hidden = !COMMUNITY || !state.supported || Boolean(state.shopify);
+  el('token-section').hidden = !COMMUNITY || !state.supported || Boolean(state.shopify);
+  el('token-note').textContent = state.hasToken ? 'Shopper token saved. Your reports count once per code. Leave blank and save to remove it.' : 'Add an issued shopper token to help verify codes. Leave blank and save to remove it.';
+  el('page-refresh').hidden = false;
+  if (state.supported) {
+    el('coupon-panel').hidden = false;
+    el('coupon-heading').textContent = 'Checking reviewed codes…';
+    el('coupon-note').textContent = 'Looking for public codes with current approval and shopper evidence.';
+    if (state.result) { showResult(state.result, state.completed); status(state.reportNote ?? 'Test complete. Review the total at checkout.'); }
+    else if (state.busy) { el('headline').textContent = 'Checking codes…'; status('Testing is running. Leave your cart unchanged. Check this page again after it finishes.'); }
+    else if (state.shopify) {
+      el('headline').textContent = 'Coupon testing is not available yet.';
+      el('description').textContent = 'This checkout can be inspected, but automatic code trials are not enabled.';
+      status(state.shopify.appliedCodes.length ? `${state.shopify.appliedCodes.join(', ')} is already applied. We leave existing codes in place.` : 'You can review the store’s own offers and confirm the final total there.');
+    } else if (!state.checkout) status('Refresh the checkout page to connect the extension.');
+    else if (state.completed) status('This demo order is complete. Start a new cart to test codes.');
+    else status('Your starting total includes any existing discount. Eligibility is checked before a code is tried.');
+  } else {
+    el('headline').textContent = 'Not supported here yet.';
+    el('description').textContent = state.price?.product ? 'Coupon testing is not available for this store. A separate price check may be available below.' : `${PRODUCT_NAME} didn’t find a supported coupon flow on this page.`;
+    status(localDemo ? 'Try the local demo checkout or open an Amazon product page.' : 'Open an Amazon.com product page to check visible coupons, or its order review page to inspect coupon savings.');
   }
+}
+function scheduleExpiry(context: Context) {
+  const observed = state?.amazonCheckout?.observedAt ?? state?.amazon?.observedAt;
+  const lifetime = state?.amazonCheckout ? 60_000 : 120_000;
+  if (!observed) return;
+  expiryTimer = setTimeout(() => {
+    if (!isCurrent(context)) return;
+    invalidate('This reading is out of date. Check the page again.');
+    fetching = false; running(false); controls();
+    el('headline').textContent = 'Time for a fresh check.';
+    el('description').textContent = 'Old amounts and coupon actions stay hidden until the current page is checked again.';
+    el('page-refresh').hidden = false;
+  }, Math.max(0, Date.parse(observed) + lifetime - Date.now()));
+}
+async function refresh() {
+  const currentGeneration = invalidate();
+  try {
+    const page = await activeBinding();
+    if (generation !== currentGeneration) return;
+    watchedTabId = page.tabId;
+    const context: Context = { generation: currentGeneration, binding: page };
+    const next = popupStatusSchema.parse(await request(context, { type: 'status' }));
+    if (!isCurrent(context)) return;
+    state = next; binding = page; fetching = false;
+    renderPrice(state.price);
+    el('hold-save-item').hidden = !state.price?.product;
+    renderPriceAlerts(state.priceAlerts, async () => { if (isCurrent(context)) await refresh(); },
+      (enabled) => request(context, { type: 'price-alerts', enabled }), () => isCurrent(context));
+    if (state.amazonCheckout !== undefined) renderCheckoutMode(state.amazonCheckout);
+    else if (state.amazon !== undefined) renderAmazonMode(state.amazon);
+    else renderStandard(context);
+    controls(); running(Boolean(state.busy), 'Checking codes in your checkout…');
+    scheduleExpiry(context);
+    if (state.supported) {
+      try {
+        const found = couponCandidatesSchema.parse(await request(context, { type: 'coupon-candidates' }));
+        if (!isCurrent(context)) return;
+        renderCandidates(found);
+      } catch (error) {
+        if (error instanceof StaleSurface || !isCurrent(context)) return;
+        candidates = undefined;
+        el('coupon-heading').textContent = 'Codes could not be checked.';
+        el('coupon-note').textContent = error instanceof Error ? error.message : 'The coupon service is unavailable. Please try again.';
+        primary.hidden = false; controls();
+      }
+    }
+  } catch (error) {
+    if (error instanceof StaleSurface || currentGeneration !== generation) return;
+    fetching = false; running(false); controls();
+    el('headline').textContent = 'Check this page again.';
+    el('description').textContent = 'No coupon or savings claim is shown without a current reading.';
+    el('page-refresh').hidden = false;
+    status(error instanceof Error ? error.message : 'Could not connect to the coupon service.', true);
+  }
+}
+async function run(code?: string) {
+  const context = currentContext();
+  if (!context || (code ? testCode.disabled : primary.disabled)) return;
+  busy = true; clearResult(); controls(); running(true, 'Checking codes in your checkout…');
+  el('headline').textContent = 'Checking codes…'; el('description').hidden = false;
+  el('description').textContent = 'Leave this cart unchanged while the check runs.';
+  status('Trying codes in your checkout. Please leave your cart as it is.');
+  try {
+    const response = trialResponseSchema.parse(await request(context, code ? { type: 'try-code', code } : { type: 'run' }));
+    if (!isCurrent(context)) return;
+    state = state ? { ...state, result: response.result, totalCents: response.result.totalCents, appliedCode: response.result.appliedCode, busy: false } : state;
+    showResult(response.result); status(response.reportNote);
+  } catch (error) {
+    if (error instanceof StaleSurface || !isCurrent(context)) return;
+    clearResult(); el('headline').textContent = 'Review your checkout.';
+    el('description').hidden = false; el('description').textContent = 'We could not confirm the result. Check the code and total on the store before continuing.';
+    status(error instanceof Error ? error.message : 'Could not check codes.', true);
+  } finally { if (isCurrent(context)) { busy = false; running(false); controls(); } }
+}
+primary.addEventListener('click', () => void run());
+el<HTMLFormElement>('code-form').addEventListener('submit', (event) => { event.preventDefault(); void run(el<HTMLInputElement>('code').value.trim()); });
+el<HTMLFormElement>('token-form').addEventListener('submit', async (event) => {
+  event.preventDefault(); const context = currentContext(); if (!context || busy || fetching) return;
+  const token = el<HTMLInputElement>('token').value.trim();
+  busy = true; controls();
+  try {
+    await request(context, { type: 'save-token', token });
+    if (!isCurrent(context)) return;
+    el<HTMLInputElement>('token').value = '';
+    await refresh();
+  } catch (error) { if (!(error instanceof StaleSurface) && isCurrent(context)) status(error instanceof Error ? error.message : 'Could not save token.', true); }
+  finally { if (isCurrent(context)) { busy = false; controls(); } }
 });
-el<HTMLButtonElement>("amazon-refresh").addEventListener("click", async () => {
-  const button = el<HTMLButtonElement>("amazon-refresh");
-  button.disabled = true;
-  el<HTMLButtonElement>("amazon-show").disabled = true;
-  status("Checking the visible product coupon…");
-  try { await refresh(); }
-  catch (error) { status(error instanceof Error ? error.message : "Could not reload.", true); }
-  finally { button.disabled = false; }
+el<HTMLButtonElement>('amazon-show').addEventListener('click', async () => {
+  const context = currentContext(); const button = el<HTMLButtonElement>('amazon-show');
+  const { offerId, fingerprint, observedAt, asin } = button.dataset;
+  if (!context || button.disabled || !offerId || !fingerprint || !observedAt || !asin) return;
+  button.disabled = true; status('Opening the coupon control on Amazon…');
+  try {
+    await request(context, { type: 'amazon-focus', asin, offerId, fingerprint, observedAt });
+    if (!isCurrent(context)) return;
+    if (!SIDE_PANEL) window.close();
+    else status('Coupon control highlighted on Amazon. Select it there if you want it, then confirm your total at checkout.');
+  } catch (error) { if (!(error instanceof StaleSurface) && isCurrent(context)) status(error instanceof Error ? error.message : 'Could not show the coupon control.', true); }
 });
-el<HTMLButtonElement>("checkout-refresh").addEventListener("click", async () => {
-  const button = el<HTMLButtonElement>("checkout-refresh");
-  if (button.disabled) return;
-  // Previous amounts are withdrawn until a fresh reading replaces them.
-  button.disabled = true;
-  checkoutWithoutAmounts("Checking totals.", "Reading Amazon's order summary…");
-  try { await refresh(); }
-  catch (error) { checkoutWithoutAmounts("Check your order summary.", error instanceof Error ? error.message : "Could not read the order summary.", true); }
-  finally { button.disabled = false; }
-});
+for (const id of ['amazon-refresh','checkout-refresh','page-refresh']) el<HTMLButtonElement>(id).addEventListener('click', () => void refresh());
 el<HTMLButtonElement>('hold-open-list').addEventListener('click', async () => {
   try { await chrome.tabs.create({ url: chrome.runtime.getURL('dashboard/index.html') }); }
   catch { el('hold-save-status').textContent = 'Could not open your list. Try again.'; }
 });
 el<HTMLButtonElement>('hold-save-item').addEventListener('click', async () => {
-  const button = el<HTMLButtonElement>('hold-save-item'); button.disabled = true;
-  el('hold-save-status').textContent = 'Saving this product…';
-  try { await request({ type: 'hold-save-page' }); el('hold-save-status').textContent = 'Saved. Open My Hold list to set a target price.'; }
-  catch (error) { el('hold-save-status').textContent = error instanceof Error ? error.message : 'Could not save this item.'; }
-  finally { button.disabled = false; }
+  const context = currentContext(); const button = el<HTMLButtonElement>('hold-save-item');
+  if (!context || button.disabled) return;
+  button.disabled = true; el('hold-save-status').textContent = 'Saving this product…';
+  try {
+    await request(context, { type: 'hold-save-page' });
+    if (isCurrent(context)) el('hold-save-status').textContent = 'Saved. Open My saved list to set a target price.';
+  } catch (error) { if (!(error instanceof StaleSurface) && isCurrent(context)) el('hold-save-status').textContent = error instanceof Error ? error.message : 'Could not save this item.'; }
+  finally { if (isCurrent(context)) button.disabled = false; }
 });
-void refresh().catch(async (error: unknown) => {
-  status(error instanceof Error ? error.message : "Could not connect to the coupon service.", true);
-  demoLink.hidden = !await onLocalDemoHost();
+// Persistent panels must withdraw the previous page's actions before any async read.
+chrome.tabs.onActivated.addListener(({ tabId }) => { watchedTabId = tabId; void refresh(); });
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  if (tabId !== watchedTabId) return;
+  if (change.status === 'loading' || change.url) invalidate('The page changed. Waiting for the current page…');
+  if (change.status === 'complete' || (change.url && tab.status !== 'loading')) void refresh();
 });
+chrome.tabs.onRemoved.addListener((tabId) => { if (tabId === watchedTabId) { invalidate('The tab closed. Open a store page to check coupons.'); void refresh(); } });
+window.addEventListener('focus', () => { const context = currentContext(); if (context) void stillOnPage(context).catch(() => undefined); });
+void refresh();

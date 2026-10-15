@@ -1,9 +1,26 @@
 import type { CheckoutInspection, TrialResult } from '@repo/shared';
+import { candidateSchema, popupStatusSchema as basePopupStatusSchema, popupRequestSchema as basePopupRequestSchema } from '@repo/shared';
+import { z } from 'zod';
+export { PRODUCT_NAME } from '../product';
 export {
   couponCodeSchema as codeSchema, popupRequestSchema, contentRequestSchema,
   inspectionSchema, trialResultSchema, popupStatusSchema, trialResponseSchema,
 } from '@repo/shared';
 export type { TrialResult, PopupStatus, ExtensionReply as Reply } from '@repo/shared';
+
+// Persistent extension surfaces bind an action to the page they actually displayed.
+// This is an extension-internal envelope; content scripts cannot invoke it.
+export const surfaceRequestSchema = z.object({
+  type: z.literal('surface-request'), tabId: z.number().int().nonnegative(), url: z.string().url().max(8000),
+  request: z.union([basePopupRequestSchema, z.object({ type: z.literal('coupon-candidates') }).strict(),
+    z.object({ type: z.literal('page-prices') }).strict(),
+    z.object({ type: z.literal('hold-save-page') }).strict()]),
+}).strict();
+export const couponCandidatesSchema = z.object({
+  merchantName: z.string().nullable(), candidates: z.array(candidateSchema).max(10), canTest: z.boolean(), reason: z.string(),
+}).strict();
+export type CouponCandidates = z.infer<typeof couponCandidatesSchema>;
+export const pagePricesSchema = basePopupStatusSchema.pick({ price: true, priceAlerts: true });
 
 // build.ts injects these with Bun.build `define`. Unbundled runs (bun test, tsc) get the dev values.
 declare const __BUILD_TARGET__: string | undefined;
