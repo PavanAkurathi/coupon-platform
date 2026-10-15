@@ -293,3 +293,10 @@ Fixes for the three accuracy failures in [COVERAGE.md](COVERAGE.md). Built from 
 - `5dabd75` captured an incomplete UI integration. Subsequent corrections fix the price-alert callback signature, side-panel detection, secondary price refresh and tab-switch invalidation. The author metadata does not establish which app committed it. No destructive history change was found.
 - Six workspace typechecks, 169 unit tests, four package build tests, 55 coupon-surface browser checks and 16 companion checks passed using disposable builds/profiles and synthetic data. Firefox runtime and live merchant/API coverage are unverified. A separate demo-trial UI test was proposed but not implemented; no 0.6.0 release package has been made.
 - Founder requested a focused status/Antigravity review after high token usage. Additional feature work and helper runs were stopped. Current unpacked `dist` manifest reads 0.5.1; the old 0.4.3 checkpoint was stale. This packet did not rebuild it. [Current status](../STATUS.md) separates source, unpacked files and remaining work.
+
+### October 15: consolidate on main
+
+- Founder explicitly requested removing dead branches, synchronizing to `main` and working on `main`. Continue on `main` unless the founder requests a different branch.
+- Fast-forwarded local `main` through `73ba5d6`, published it to GitHub and changed the repository default to `main`. Removed redundant local `codex/coupons-design-v2`, `codex/price-compare`, `codex/price-speed` and `claude/sidepanel-v2`, plus the remote design branch. Every removed branch's committed work is reachable from `main`.
+- Three older worktrees contain unfinished edits. Detached them at their existing commits and verified staged/unstaged/untracked status remained identical. No files, archives, installed extension output or uncommitted work were deleted. These detached directories are preservation copies, not active work targets.
+- This is repository consolidation and checkpoint documentation only; application tests were not repeated. The preceding validation remains applicable to the unchanged application code.

@@ -1,6 +1,8 @@
 # Chenchulu / HOLD checkpoint
 
-Updated October 15, 2026. **Current source: 0.6.0 preview on `codex/coupons-design-v2`. Current unpacked extension files: Hold 0.5.1 in `apps/extension/dist` (read from its manifest; browser loading/reloading was not verified).** The older 0.4.3 installation note below is historical. Nothing was installed or deployed by this packet.
+Updated October 15, 2026. **Current source: 0.6.0 preview on `main`, synchronized with GitHub. Current unpacked extension files: Hold 0.5.1 in `apps/extension/dist` (read from its manifest; browser loading/reloading was not verified).** The older 0.4.3 installation note below is historical. Nothing was installed or deployed by this packet.
+
+The founder requested work directly on `main`. All four redundant local branches and the remote design branch were removed after their commits were incorporated into `main`; GitHub's default is now `main`. Unfinished edits remain preserved in the detached `coupon-price-compare`, `coupon-price-speed` and `coupon-sidepanel` worktrees. They were not discarded or merged into the product.
 
 ## October 15 integration checkpoint
 
