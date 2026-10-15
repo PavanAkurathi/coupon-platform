@@ -27,12 +27,17 @@ export function renderPrice(price: Price | undefined): boolean {
   const link = el<HTMLAnchorElement>("price-link");
   link.hidden = true; link.removeAttribute("href");
   el("price-match").hidden = true;
-  if (!price) { panel.hidden = true; return false; }
+  if (!price) {
+    panel.hidden = true;
+    for (const id of ['price-headline', 'price-meta', 'price-sources', 'price-match-text']) el(id).textContent = '';
+    el<HTMLAnchorElement>('price-match-link').removeAttribute('href');
+    return false;
+  }
   panel.hidden = false;
   const { product, comparison } = price;
   const better = comparison?.status === "better_offer" && comparison.bestOffer;
   panel.classList.toggle("neutral", !better);
-  el("price-eyebrow").textContent = better ? "Cheaper elsewhere" : "Price check";
+  el("price-eyebrow").textContent = "Compare prices";
   if (!product || !comparison) {
     el("price-headline").textContent = "Can't compare this product.";
     el("price-meta").textContent = price.reason;
@@ -62,22 +67,28 @@ export function renderPrice(price: Price | undefined): boolean {
   return true;
 }
 
-export function renderPriceAlerts(enabled: boolean | undefined, onChange: () => Promise<void>) {
+export function renderPriceAlerts(enabled: boolean | undefined, onChange: () => Promise<void>,
+  change: (enabled: boolean) => Promise<unknown>, isCurrent: () => boolean) {
   const row = el("price-alerts");
   if (enabled === undefined) { row.hidden = true; return; }
   row.hidden = false;
   el("price-alerts-text").textContent = enabled
-    ? "Price alerts are on for every store. We warn you before you buy if this exact item is cheaper elsewhere."
-    : "Get warned on any store when the same item is cheaper elsewhere.";
+    ? "Price checks are on for supported product pages you visit. Coverage varies by store."
+    : "Allow price checks on product pages you visit. A match and a readable price are required.";
   const toggle = el<HTMLButtonElement>("price-alerts-toggle");
   toggle.textContent = enabled ? "Turn off" : "Turn on";
+  toggle.disabled = false;
   toggle.onclick = async () => {
+    if (!isCurrent()) return;
     toggle.disabled = true;
     try {
       // The permission prompt must come from this click, not the worker.
       const granted = enabled ? false : await chrome.permissions.request({ origins: ["https://*/*"] });
-      await chrome.runtime.sendMessage({ type: "price-alerts", enabled: granted });
-      await onChange();
-    } finally { toggle.disabled = false; }
+      if (!isCurrent()) return;
+      await change(granted);
+      if (isCurrent()) await onChange();
+    } catch {
+      if (isCurrent()) el('price-alerts-text').textContent = 'The price-check setting could not be changed. Please try again.';
+    } finally { if (isCurrent()) toggle.disabled = false; }
   };
 }

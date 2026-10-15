@@ -1,4 +1,18 @@
-# Hold checkpoint
+# Chenchulu / HOLD checkpoint
+
+Updated October 15, 2026. **Current source: 0.6.0 preview on `codex/coupons-design-v2`. Current unpacked extension files: Hold 0.5.1 in `apps/extension/dist` (read from its manifest; browser loading/reloading was not verified).** The older 0.4.3 installation note below is historical. Nothing was installed or deployed by this packet.
+
+## October 15 integration checkpoint
+
+- Applied the supplied Evergreen & Mint tokens, local Figtree fonts and Claude's Chenchulu branding. Chrome defaults to a persistent side panel; Firefox retains a popup. Coupon observations and savings come first, with price comparison secondary and loaded independently. No tax estimates, ZIP/membership forms or delivery predictions were added.
+- Amazon coupon focus remains read-only. Checkout amounts are labeled as Amazon's observations, not savings caused by the extension. Candidate evidence, empty/error states and additional savings over the starting checkout have explicit UI. Saved-item storage and backups remain compatible; dashboard visible branding matches.
+- Surface actions are bound to the displayed tab and URL; navigation/tab switching withdraws old data. Live Shopify trials are blocked pending C6/M3. No merchant was enabled, no new live coverage was established, and eBay remains on hold.
+- Optional Best Buy Products API connector is implemented with mock tests. `BESTBUY_API_KEY` belongs only in the server's secret configuration and is **not configured or live-tested**. See [setup and limits](services/price-service/BESTBUY.md). This is pricing data, not coupon supply.
+- Commit `5dabd75` saved an unfinished integration: mismatched `renderPriceAlerts` arguments, `<html>`/`<body>` panel detection mismatch and a missing `page-prices` UI request. Follow-up corrections resolve these. Git does not identify whether Antigravity made that commit; no deleted source files or lost history were found in this review.
+- Validation completed: six workspace typechecks, 169 unit tests, four Chrome/Firefox build tests, 55 isolated coupon-surface browser checks and 16 companion checks. Fixtures do not prove live merchant coverage. No Firefox runtime, Best Buy live API, production/database check or 0.6.0 store release was performed.
+- Remaining: finish the separate demo-trial UI regression (not written/run), prepare a reviewed 0.6.0 package if requested, and configure/validate Best Buy separately. No package or extension installation is implied by the source version. Work was narrowed after the founder raised token usage; no further feature expansion is in progress.
+
+## Historical October 11 companion checkpoint
 
 Updated October 11, 2026. **Usable local prototype; not ready to claim Honey/Rakuten parity or launch.** The founder chose an extension plus companion dashboard. A broader interface does not resolve the documented coverage gap: the last recorded 30-product test had zero correct savings alerts and one wrong alert; accuracy fixes landed afterward, but coverage has not been remeasured.
 

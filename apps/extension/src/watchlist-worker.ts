@@ -29,7 +29,7 @@ export function createWatchlistStore(storage: Storage, ready: Promise<unknown> =
         const current = request.type === 'hold-clear' ? emptyWatchlist() : await load();
         let next: Watchlist;
         if (request.type === 'hold-save-page') {
-          if (!currentPage) throw new Error('Save items from the Hold popup on a product page.');
+          if (!currentPage) throw new Error('Save items from the extension on a product page.');
           const bound = await currentPage();
           next = savePageItem(current, bound.product);
           await bound.assertCurrent();

@@ -1,4 +1,4 @@
-import { BUILD_TARGET, DEMO_ORIGIN, PRODUCT_NAME, couponCandidatesSchema, formatMoney, popupStatusSchema, surfaceRequestSchema, trialResponseSchema, type CouponCandidates, type PopupStatus, type Reply, type TrialResult } from './protocol';
+import { BUILD_TARGET, DEMO_ORIGIN, PRODUCT_NAME, couponCandidatesSchema, formatMoney, pagePricesSchema, popupStatusSchema, surfaceRequestSchema, trialResponseSchema, type CouponCandidates, type PopupStatus, type Reply, type TrialResult } from './protocol';
 import { eligibleCandidates, sameBinding, trialDisplay, type PageBinding } from './coupon-view';
 import { renderPrice, renderPriceAlerts } from './price-popup';
 import type { z } from 'zod';
@@ -11,7 +11,7 @@ const testCode = el<HTMLButtonElement>('test-code');
 const statusLine = el('status');
 const demoLink = el<HTMLAnchorElement>('demo-link');
 const COMMUNITY = BUILD_TARGET === 'dev';
-const SIDE_PANEL = document.body.dataset.surface === 'sidepanel';
+const SIDE_PANEL = document.documentElement.dataset.surface === 'sidepanel' || document.body.dataset.surface === 'sidepanel';
 let state: PopupStatus | undefined;
 let candidates: CouponCandidates | undefined;
 let binding: PageBinding | undefined;
@@ -292,9 +292,11 @@ function renderCandidates(data: CouponCandidates) {
   }
   el('trust-row').hidden = count === 0;
   primary.hidden = false;
-  if (!state?.result && !state?.busy) {
-    el('headline').textContent = count ? 'A code worth checking.' : 'No reviewed codes yet.';
-    el('description').textContent = count ? 'We test only approved codes, then compare with the total you started with.' : 'No guesses. We’ll show codes here when their review and recent evidence are in place.';
+  if (!state?.result && !state?.busy && !state?.shopify) {
+    el('headline').textContent = count ? data.canTest ? 'A code worth checking.' : 'Code testing is not available.' : 'No reviewed codes yet.';
+    el('description').textContent = count
+      ? data.canTest ? 'We test only approved codes, then compare with the total you started with.' : data.reason || 'These codes cannot be tested in this checkout right now.'
+      : 'No guesses. We’ll show codes here when their review and recent evidence are in place.';
   }
   controls();
 }
@@ -340,6 +342,21 @@ function scheduleExpiry(context: Context) {
     el('page-refresh').hidden = false;
   }, Math.max(0, Date.parse(observed) + lifetime - Date.now()));
 }
+async function refreshPrices(context: Context) {
+  try {
+    const prices = pagePricesSchema.parse(await request(context, { type: 'page-prices' }));
+    if (!isCurrent(context) || !state) return;
+    state = { ...state, ...prices };
+    renderPrice(prices.price);
+    el('hold-save-item').hidden = !prices.price?.product;
+    renderPriceAlerts(prices.priceAlerts, async () => { if (isCurrent(context)) await refresh(); },
+      (enabled) => request(context, { type: 'price-alerts', enabled }), () => isCurrent(context));
+    controls();
+  } catch (error) {
+    if (error instanceof StaleSurface || !isCurrent(context)) return;
+    renderPrice({ product: null, comparison: null, reason: 'Price comparison is unavailable right now. Coupon checks are separate.' });
+  }
+}
 async function refresh() {
   const currentGeneration = invalidate();
   try {
@@ -350,15 +367,13 @@ async function refresh() {
     const next = popupStatusSchema.parse(await request(context, { type: 'status' }));
     if (!isCurrent(context)) return;
     state = next; binding = page; fetching = false;
-    renderPrice(state.price);
-    el('hold-save-item').hidden = !state.price?.product;
-    renderPriceAlerts(state.priceAlerts, async () => { if (isCurrent(context)) await refresh(); },
-      (enabled) => request(context, { type: 'price-alerts', enabled }), () => isCurrent(context));
     if (state.amazonCheckout !== undefined) renderCheckoutMode(state.amazonCheckout);
     else if (state.amazon !== undefined) renderAmazonMode(state.amazon);
     else renderStandard(context);
     controls(); running(Boolean(state.busy), 'Checking codes in your checkout…');
     scheduleExpiry(context);
+    // Price sources can be slow. They never delay or replace the coupon result.
+    if (!state.amazonCheckout) void refreshPrices(context);
     if (state.supported) {
       try {
         const found = couponCandidatesSchema.parse(await request(context, { type: 'coupon-candidates' }));

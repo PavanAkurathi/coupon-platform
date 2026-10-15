@@ -55,11 +55,14 @@ try {
     label = `commit ${commit}`;
   }
   const extension = join(tree, "apps/extension");
+  const { PRODUCT_NAME, PRODUCT_SLUG } = existsSync(join(extension, 'product.ts'))
+    ? await import(join(extension, 'product.ts')) as { PRODUCT_NAME: string; PRODUCT_SLUG: string }
+    : { PRODUCT_NAME: 'Hold', PRODUCT_SLUG: 'hold' };
   const manifest = await Bun.file(join(extension, "public/manifest.json")).json();
   const version: string = manifest.version;
   const out = resolve(args.out ?? join(import.meta.dir, "release", version));
   if (existsSync(out)) throw new Error(`${out} already exists; bump the manifest version or pick another --out.`);
-  console.log(`Hold ${version} from ${label}`);
+  console.log(`${PRODUCT_NAME} ${version} from ${label}`);
 
   step("install (frozen lockfile)");
   run(["bun", "install", "--frozen-lockfile"], tree);
@@ -86,7 +89,7 @@ try {
   // The lockfile lists every workspace; the backend services ship as package.json only (no code).
   for (const manifestPath of new Bun.Glob("services/*/package.json").scanSync({ cwd: tree })) await cp(join(tree, manifestPath), join(source, manifestPath));
   await writeFile(join(source, "SOURCE-BUILD.md"), [
-    `# Building Hold ${version} for Firefox`,
+    `# Building ${PRODUCT_NAME} ${version} for Firefox`,
     "",
     "The submitted extension is bundled and minified with Bun from the TypeScript in `apps/extension/src`, `apps/dashboard/src` and `packages/shared/src`.",
     "",
@@ -98,7 +101,7 @@ try {
     "",
   ].join("\n"));
 
-  const zips = { chrome: `hold-chrome-${version}.zip`, firefox: `hold-firefox-${version}.zip`, source: `hold-source-${version}.zip` };
+  const zips = { chrome: `${PRODUCT_SLUG}-chrome-${version}.zip`, firefox: `${PRODUCT_SLUG}-firefox-${version}.zip`, source: `${PRODUCT_SLUG}-source-${version}.zip` };
   const zipped = join(work, "zips");
   await mkdir(zipped);
   for (const [name, zip] of Object.entries(zips)) run(["zip", "-X", "-q", "-r", join(zipped, zip), "."], join(work, name));
@@ -117,7 +120,7 @@ try {
   const sums = await Promise.all(Object.values(zips).map(async (zip) => `${await sha256(join(out, zip))}  ${zip}`));
   await writeFile(join(out, "SHA256SUMS"), `${sums.join("\n")}\n`);
   await writeFile(join(out, "RELEASE.txt"), [
-    `Hold ${version} from ${label}, built ${new Date().toISOString()}`,
+    `${PRODUCT_NAME} ${version} from ${label}, built ${new Date().toISOString()}`,
     `Chrome Web Store: ${zips.chrome}`,
     `Firefox Add-ons: ${zips.firefox} (+ ${zips.source} when asked for source code)`,
     `Firefox lint: 0 errors, ${warnings.length} warnings${warnings.length ? `: ${warnings.join(", ")}` : ""}`,

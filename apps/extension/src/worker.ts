@@ -12,6 +12,7 @@ import { createWatchlistStore, watchlistSender } from './watchlist-worker';
 
 const running = new Set<number>();
 const pageRevisions = new Map<number, number>();
+let activeTabRevision = 0;
 const SHOPIFY_TRIALS_PAUSED = 'Coupon testing is not available for this checkout yet. Review any codes on the store page.';
 declare const __SIDE_PANEL__: boolean | undefined;
 if (typeof __SIDE_PANEL__ !== 'undefined' && __SIDE_PANEL__) {
@@ -346,7 +347,7 @@ async function couponCandidates(tab: chrome.tabs.Tab): Promise<CouponCandidates>
 }
 
 async function handleSurface(data: z.infer<typeof surfaceRequestSchema>) {
-  const { tab, assertCurrent } = await bindSurfacePage(data.tabId, data.url, chrome.tabs, () => pageRevisions.get(data.tabId) ?? 0);
+  const { tab, assertCurrent } = await bindSurfacePage(data.tabId, data.url, chrome.tabs, () => (pageRevisions.get(data.tabId) ?? 0) + activeTabRevision);
   const request = data.request;
   let result: unknown;
   if (request.type === 'status') result = await status(tab, false);
@@ -464,6 +465,7 @@ chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
   if (change.status === 'complete' || change.url) void badge(tab).catch(() => undefined);
 });
 chrome.tabs.onRemoved.addListener((tabId) => { pageRevisions.delete(tabId); badgeGenerations.delete(tabId); running.delete(tabId); void chrome.storage.session.remove(`result:${tabId}`); });
+chrome.tabs.onActivated.addListener(() => { activeTabRevision++; });
 chrome.runtime.onInstalled.addListener(() => { void chrome.tabs.query({}).then((tabs) => Promise.all(tabs.map(badge))).catch(() => undefined); });
 // Keep the all-sites price script in step with the permission, including removal in Chrome settings.
 for (const event of [chrome.runtime.onInstalled, chrome.runtime.onStartup, chrome.permissions.onAdded, chrome.permissions.onRemoved]) {

@@ -14,7 +14,7 @@ const shots = join(root, 'output/playwright/coupon-surface');
 const productURL = 'https://www.amazon.com/dp/B097S1MF28?tag=creator-fixture';
 const checkoutURL = 'https://www.amazon.com/checkout/p/p-000-0000000-0000000/spc?referrer=spc&tag=creator-fixture';
 const unsupportedURL = 'https://unsupported.example.test/fixture';
-const fixtureShopURL = 'https://fixture-shop.example.test/checkouts/c/synthetic';
+const fixtureShopURL = 'https://fixture-shop.example.test/checkouts/cn/synthetic-fixture';
 const fixtures = {
   product: await Bun.file(join(import.meta.dir, 'fixtures/amazon-product.html')).text(),
   checkout: await Bun.file(join(import.meta.dir, 'fixtures/amazon-checkout.html')).text(),
@@ -65,9 +65,10 @@ function rpc(cdp: CDPSession) {
 
 async function exercise(outdir: string, surface: 'sidepanel' | 'popup') {
   // Scripted action opening does not grant activeTab. Limit the substitute grant
-  // to the one synthetic Amazon host, in the disposable copy only.
+  // to synthetic fixture hosts, in the disposable copy only.
   const manifest = await Bun.file(join(outdir, 'manifest.json')).json();
-  manifest.host_permissions = [...new Set([...(manifest.host_permissions ?? []), 'https://www.amazon.com/*'])];
+  manifest.host_permissions = [...new Set([...(manifest.host_permissions ?? []), 'https://www.amazon.com/*',
+    'https://fixture-shop.example.test/*', 'https://unsupported.example.test/*'])];
   await Bun.write(join(outdir, 'manifest.json'), JSON.stringify(manifest));
   await Bun.write(join(outdir, 'coupon-surface-driver.html'), '<!doctype html><title>Synthetic panel driver</title><button id="open" disabled>Open synthetic panel</button><script src="coupon-surface-driver.js"></script>');
   await Bun.write(join(outdir, 'coupon-surface-driver.js'), `let windowId; chrome.windows.getCurrent().then(w=>{windowId=w.id;document.getElementById('open').disabled=false;});document.getElementById('open').addEventListener('click',()=>chrome.sidePanel.open({windowId}));`);
